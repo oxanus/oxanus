@@ -59,7 +59,8 @@ impl oxanus::Worker for Worker2 {
 
 #[tokio::main]
 pub async fn main() -> Result<(), oxanus::OxanusError> {
-    let url = std::env::var("PG_URL").unwrap_or_else(|_e| "postgresql://localhost/oxanus".to_string());
+    let url =
+        std::env::var("PG_URL").unwrap_or_else(|_e| "postgresql://localhost/oxanus".to_string());
     let pool = sqlx::postgres::PgPool::connect(&url).await?;
     let data = oxanus::WorkerState::new(Connections { db: pool.clone() });
 
@@ -71,7 +72,7 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
         .register_queue(queue_two)
         .register_worker::<Worker1>()
         .register_worker::<Worker2>()
-        .exit_when_done();
+        .exit_when_idle();
 
     oxanus::setup(&pool, &config).await?;
     oxanus::enqueue(

@@ -46,7 +46,7 @@ impl<DT, ET> Config<DT, ET> {
         self
     }
 
-    pub fn exit_when_done(mut self) -> Self {
+    pub fn exit_when_idle(mut self) -> Self {
         self.exit_when_idle = true;
         self
     }

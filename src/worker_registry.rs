@@ -35,7 +35,7 @@ impl<DT, ET> WorkerRegistry<DT, ET> {
 
         let name = type_name::<T>();
 
-        println!("Registering job: {}", name);
+        // println!("Registering job: {}", name);
 
         self.jobs.insert(name.to_string(), factory::<T, DT, ET>);
         self

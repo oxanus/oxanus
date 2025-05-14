@@ -20,3 +20,8 @@ uuid = { version = "^1.16", features = ["serde", "v4"] }
 
 [dev-dependencies]
 testresult = "^0.4"
+divan = "^0.1"
+
+[[bench]]
+name = "concurrency"
+harness = false
