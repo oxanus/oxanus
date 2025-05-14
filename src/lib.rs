@@ -60,20 +60,18 @@ pub async fn run<DT: Send + Sync + Clone + 'static, ET: std::error::Error + Send
     let pgmq = pgmq::PGMQueue::new_with_pool(pool.clone()).await;
     let queue_configs: Vec<QueueConfig> = config.queues.values().map(|q| q.config()).collect();
     let config = Arc::new(config);
-    let mut handles = Vec::new();
+    let mut joinset = tokio::task::JoinSet::new();
 
     for queue_config in queue_configs {
-        handles.push(tokio::spawn(run_queue_workers(
+        joinset.spawn(run_queue_workers(
             pgmq.clone(),
             config.clone(),
             data.clone(),
             queue_config,
-        )));
+        ));
     }
 
-    for handle in handles {
-        handle.await??;
-    }
+    joinset.join_all().await;
 
     Ok(())
 }
