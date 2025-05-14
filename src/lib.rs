@@ -20,7 +20,7 @@ pub use crate::worker_state::WorkerState;
 
 pub struct Config<DT, ET> {
     registry: WorkerRegistry<DT, ET>,
-    queues: HashMap<String, Box<dyn Queue>>,
+    queues: HashMap<String, Queue>,
     exit_when_idle: bool,
 }
 
@@ -33,7 +33,7 @@ impl<DT, ET> Config<DT, ET> {
         }
     }
 
-    pub fn register_queue(mut self, queue: Box<dyn Queue>) -> Self {
+    pub fn register_queue(mut self, queue: Queue) -> Self {
         self.queues.insert(queue.name().to_string(), queue);
         self
     }
@@ -93,6 +93,7 @@ pub async fn setup<DT: Send + Sync + Clone + 'static, ET: std::error::Error + Se
 
 pub async fn enqueue<T, DT: Send + Sync + Clone + 'static, ET: std::error::Error + Send + Sync + 'static>(
     pool: &Pool<Postgres>,
+    queue: &Queue,
     job: T,
 ) -> Result<i64, OxanusError>
 where
@@ -100,11 +101,12 @@ where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
-    enqueue_in(pool, job, 0).await
+    enqueue_in(pool, queue, job, 0).await
 }
 
 pub async fn enqueue_in<T, DT: Send + Sync + Clone + 'static, ET: std::error::Error + Send + Sync + 'static>(
     pool: &Pool<Postgres>,
+    queue: &Queue,
     job: T,
     delay: u64,
 ) -> Result<i64, OxanusError>
@@ -114,7 +116,6 @@ where
     ET: std::error::Error + Send + Sync + 'static,
 {
     let pgmq = pgmq::PGMQueue::new_with_pool(pool.clone()).await;
-    let queue = job.queue();
     let envelope = JobEnvelope::new(job)?;
     let msg_id = pgmq
         .send_delay(queue.name(), &serde_json::to_value(&envelope)?, delay)

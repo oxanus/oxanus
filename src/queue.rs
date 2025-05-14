@@ -1,8 +1,23 @@
-pub trait Queue: Send + Sync + 'static {
-    fn name(&self) -> &'static str;
-    fn concurrency(&self) -> usize;
+#[derive(Debug, Clone, Copy)]
+pub struct Queue {
+    name: &'static str,
+    concurrency: usize,
+}
 
-    fn config(&self) -> QueueConfig {
+impl Queue {
+    pub const fn new(name: &'static str, concurrency: usize) -> Self {
+        Self { name, concurrency }
+    }
+
+    pub const fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub const fn concurrency(&self) -> usize {
+        self.concurrency
+    }
+
+    pub fn config(&self) -> QueueConfig {
         QueueConfig {
             name: self.name().to_string(),
             concurrency: self.concurrency(),

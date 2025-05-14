@@ -1,4 +1,3 @@
-use crate::queue::Queue;
 use crate::worker_state::WorkerState;
 
 #[async_trait::async_trait]
@@ -24,6 +23,4 @@ pub trait Worker: Send + Sync {
 
         u64::pow(5, retries + 2)
     }
-
-    fn queue(&self) -> Box<dyn Queue>;
 }

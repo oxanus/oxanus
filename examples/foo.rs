@@ -1,30 +1,5 @@
+use oxanus::Queue;
 use serde::{Deserialize, Serialize};
-
-#[derive(Default)]
-pub struct QueueOne {}
-
-impl oxanus::Queue for QueueOne {
-    fn name(&self) -> &'static str {
-        "one"
-    }
-
-    fn concurrency(&self) -> usize {
-        1
-    }
-}
-
-#[derive(Default)]
-pub struct QueueTwo {}
-
-impl oxanus::Queue for QueueTwo {
-    fn name(&self) -> &'static str {
-        "two"
-    }
-
-    fn concurrency(&self) -> usize {
-        1
-    }
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Worker1 {
@@ -47,10 +22,6 @@ pub struct Connections {
 impl oxanus::Worker for Worker1 {
     type Data = Connections;
     type Error = ServiceError;
-
-    fn queue(&self) -> Box<dyn oxanus::Queue> {
-        Box::new(QueueOne::default())
-    }
 
     async fn process(
         &self,
@@ -75,10 +46,6 @@ impl oxanus::Worker for Worker2 {
     type Data = Connections;
     type Error = ServiceError;
 
-    fn queue(&self) -> Box<dyn oxanus::Queue> {
-        Box::new(QueueTwo::default())
-    }
-
     async fn process(
         &self,
         oxanus::WorkerState(_conns): &oxanus::WorkerState<Connections>,
@@ -92,13 +59,16 @@ impl oxanus::Worker for Worker2 {
 
 #[tokio::main]
 pub async fn main() -> Result<(), oxanus::OxanusError> {
-    let url = "postgresql://localhost/oxanus";
+    let url = std::env::var("PG_URL").unwrap_or_else(|_e| "postgresql://localhost/oxanus".to_string());
     let pool = sqlx::postgres::PgPool::connect(&url).await?;
     let data = oxanus::WorkerState::new(Connections { db: pool.clone() });
 
+    let queue_one = Queue::new("one", 1);
+    let queue_two = Queue::new("two", 1);
+
     let config = oxanus::Config::new()
-        .register_queue(Box::new(QueueOne::default()))
-        .register_queue(Box::new(QueueTwo::default()))
+        .register_queue(queue_one)
+        .register_queue(queue_two)
         .register_worker::<Worker1>()
         .register_worker::<Worker2>()
         .exit_when_done();
@@ -106,22 +76,24 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     oxanus::setup(&pool, &config).await?;
     oxanus::enqueue(
         &pool,
+        &queue_one,
         Worker1 {
             id: 1,
             payload: "test".to_string(),
         },
     )
     .await?;
-    oxanus::enqueue(&pool, Worker2 { id: 2, foo: 42 }).await?;
+    oxanus::enqueue(&pool, &queue_two, Worker2 { id: 2, foo: 42 }).await?;
     oxanus::enqueue(
         &pool,
+        &queue_one,
         Worker1 {
             id: 3,
             payload: "test".to_string(),
         },
     )
     .await?;
-    oxanus::enqueue(&pool, Worker2 { id: 4, foo: 44 }).await?;
+    oxanus::enqueue(&pool, &&queue_two, Worker2 { id: 4, foo: 44 }).await?;
     oxanus::run(&pool, config, data).await?;
 
     Ok(())
