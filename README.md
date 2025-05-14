@@ -1,6 +1,10 @@
 # Oxanus
 
-![Logo](logo.jpg)
+<p align="center">
+  <picture>
+    <img alt="Oxanus logo" src="logo.jpg" width="320">
+  </picture>
+</p>
 
 ## Dev
 
