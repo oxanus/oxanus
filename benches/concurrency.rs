@@ -21,6 +21,9 @@ pub struct Connections {
     pub db: sqlx::postgres::PgPool,
 }
 
+const JOBS_COUNT: u64 = 1000;
+const CONCURRENCY: &[usize] = &[1, 2, 4, 8, 12, 16];
+
 #[async_trait::async_trait]
 impl oxanus::Worker for WorkerNoop {
     type Data = Connections;
@@ -35,48 +38,68 @@ impl oxanus::Worker for WorkerNoop {
     }
 }
 
-#[divan::bench(args = [1, 2, 4, 8], max_time = 1)]
+#[divan::bench(args = CONCURRENCY, sample_size = 1, sample_count = 1)]
 fn run_1000_jobs_taking_1_ms(bencher: divan::Bencher, n: usize) {
     let rt = &tokio::runtime::Runtime::new().unwrap();
+    let sleep_ms = 1;
+    let pool = rt.block_on(async {
+        setup(n, JOBS_COUNT, sleep_ms).await.unwrap()
+    });
+
     bencher.bench(|| {
+        let pool = pool.clone();
         rt.block_on(async {
-            divan::black_box(inner_run(n, 1000, 1).await).unwrap();
+            execute(pool, n, JOBS_COUNT).await.unwrap();
         })
     });
 }
 
-#[divan::bench(args = [1, 2, 4, 8], max_time = 1)]
+#[divan::bench(args = CONCURRENCY, sample_size = 1, sample_count = 1)]
 fn run_1000_jobs_taking_2_ms(bencher: divan::Bencher, n: usize) {
     let rt = &tokio::runtime::Runtime::new().unwrap();
+    let sleep_ms = 2;
+    let pool = rt.block_on(async {
+        setup(n, JOBS_COUNT, sleep_ms).await.unwrap()
+    });
+
     bencher.bench(|| {
+        let pool = pool.clone();
         rt.block_on(async {
-            divan::black_box(inner_run(n, 1000, 2).await).unwrap();
+            execute(pool, n, JOBS_COUNT).await.unwrap();
         })
     });
 }
 
-async fn inner_run(
+async fn setup(
     concurrency: usize,
     jobs_count: u64,
     sleep_ms: u64,
-) -> Result<(), oxanus::OxanusError> {
+) -> Result<sqlx::postgres::PgPool, oxanus::OxanusError> {
     let url =
         std::env::var("PG_URL").unwrap_or_else(|_e| "postgresql://localhost/oxanus".to_string());
     let pool = sqlx::postgres::PgPool::connect(&url).await?;
-    let data = oxanus::WorkerState::new(Connections { db: pool.clone() });
 
     let queue = Queue::new("one", concurrency);
-
-    let config = oxanus::Config::new()
-        .register_queue(queue)
-        .register_worker::<WorkerNoop>()
-        .exit_when_idle();
+    let config = build_config(queue.clone());
 
     oxanus::setup(&pool, &config).await?;
 
     for _ in 0..jobs_count {
         oxanus::enqueue(&pool, &queue, WorkerNoop { sleep_ms }).await?;
     }
+
+    Ok(pool)
+}
+
+async fn execute(
+    pool: sqlx::postgres::PgPool,
+    concurrency: usize,
+    jobs_count: u64,
+) -> Result<(), oxanus::OxanusError> {
+    let queue = Queue::new("one", concurrency);
+    let config = build_config(queue.clone());
+    let data = oxanus::WorkerState::new(Connections { db: pool.clone() });
+
     let stats = oxanus::run(&pool, config, data).await?;
 
     assert_eq!(stats.processed, jobs_count);
@@ -84,4 +107,11 @@ async fn inner_run(
     assert_eq!(stats.failed, 0);
 
     Ok(())
+}
+
+fn build_config(queue: Queue) -> oxanus::Config<Connections, ServiceError> {
+    oxanus::Config::new()
+        .register_queue(queue)
+        .register_worker::<WorkerNoop>()
+        .exit_when_idle()
 }
