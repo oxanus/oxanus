@@ -95,7 +95,9 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     )
     .await?;
     oxanus::enqueue(&pool, &&queue_two, Worker2 { id: 4, foo: 44 }).await?;
-    oxanus::run(&pool, config, data).await?;
+    let stats = oxanus::run(&pool, config, data).await?;
+
+    println!("Stats: {:?}", stats);
 
     Ok(())
 }

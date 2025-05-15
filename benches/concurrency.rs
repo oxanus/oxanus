@@ -57,7 +57,7 @@ fn run_1000_jobs_taking_2_ms(bencher: divan::Bencher, n: usize) {
 
 async fn inner_run(
     concurrency: usize,
-    jobs_count: usize,
+    jobs_count: u64,
     sleep_ms: u64,
 ) -> Result<(), oxanus::OxanusError> {
     let url =
@@ -77,7 +77,11 @@ async fn inner_run(
     for _ in 0..jobs_count {
         oxanus::enqueue(&pool, &queue, WorkerNoop { sleep_ms }).await?;
     }
-    oxanus::run(&pool, config, data).await?;
+    let stats = oxanus::run(&pool, config, data).await?;
+
+    assert_eq!(stats.processed, jobs_count);
+    assert_eq!(stats.succeeded, jobs_count);
+    assert_eq!(stats.failed, 0);
 
     Ok(())
 }

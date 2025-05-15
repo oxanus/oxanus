@@ -10,6 +10,7 @@ use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Semaphore, mpsc};
+use std::sync::Mutex;
 
 pub use crate::error::OxanusError;
 pub use crate::job_envelope::JobEnvelope;
@@ -52,6 +53,13 @@ impl<DT, ET> Config<DT, ET> {
     }
 }
 
+#[derive(Default, Debug)]
+pub struct Stats {
+    pub processed: u64,
+    pub succeeded: u64,
+    pub failed: u64,
+}
+
 pub async fn run<
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
@@ -59,16 +67,18 @@ pub async fn run<
     pool: &Pool<Postgres>,
     config: Config<DT, ET>,
     data: WorkerState<DT>,
-) -> Result<(), OxanusError> {
+) -> Result<Stats, OxanusError> {
     let pgmq = pgmq::PGMQueue::new_with_pool(pool.clone()).await;
     let queue_configs: Vec<QueueConfig> = config.queues.values().map(|q| q.config()).collect();
     let config = Arc::new(config);
     let mut joinset = tokio::task::JoinSet::new();
+    let stats = Arc::new(Mutex::new(Stats::default()));
 
     for queue_config in queue_configs {
         joinset.spawn(run_queue_workers(
             pgmq.clone(),
             config.clone(),
+            stats.clone(),
             data.clone(),
             queue_config,
         ));
@@ -76,7 +86,12 @@ pub async fn run<
 
     joinset.join_all().await;
 
-    Ok(())
+    let stats = Arc::try_unwrap(stats)
+        .expect("Failed to unwrap Arc - there are still references to stats")
+        .into_inner()
+        .expect("Failed to unwrap Mutex - it was poisoned");
+
+    Ok(stats)
 }
 
 pub async fn setup<
@@ -142,6 +157,7 @@ pub async fn run_queue_workers<
 >(
     pgmq: pgmq::PGMQueue,
     config: Arc<Config<DT, ET>>,
+    stats: Arc<Mutex<Stats>>,
     data: WorkerState<DT>,
     queue_config: QueueConfig,
 ) -> Result<(), OxanusError> {
@@ -157,7 +173,7 @@ pub async fn run_queue_workers<
     let (result_tx, result_rx) = mpsc::channel::<Result<(), ET>>(concurrency);
     let worker_capacity = Arc::new(Semaphore::new(concurrency));
 
-    tokio::spawn(collect_results(result_rx));
+    tokio::spawn(collect_results(result_rx, stats.clone()));
 
     loop {
         let permit = worker_capacity.clone().acquire_owned().await.unwrap();
@@ -273,11 +289,15 @@ async fn run_worker<DT: Send + Sync + Clone + 'static, ET: std::error::Error + S
 
 async fn collect_results<ET: std::error::Error + Send + Sync>(
     mut rx: mpsc::Receiver<Result<(), ET>>,
+    stats: Arc<Mutex<Stats>>,
 ) {
     while let Some(result) = rx.recv().await {
-        match result {
-            Ok(_) => (),
-            Err(_e) => (),
+        if let Ok(mut stats) = stats.lock() {
+            stats.processed += 1;
+            match result {
+                Ok(_) => stats.succeeded += 1,
+                Err(_e) => stats.failed += 1,
+            }
         }
     }
 }
