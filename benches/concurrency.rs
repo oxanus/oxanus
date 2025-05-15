@@ -39,6 +39,22 @@ impl oxanus::Worker for WorkerNoop {
 }
 
 #[divan::bench(args = CONCURRENCY, sample_size = 1, sample_count = 1)]
+fn run_1000_jobs_taking_0_ms(bencher: divan::Bencher, n: usize) {
+    let rt = &tokio::runtime::Runtime::new().unwrap();
+    let sleep_ms = 0;
+    let pool = rt.block_on(async {
+        setup(n, JOBS_COUNT, sleep_ms).await.unwrap()
+    });
+
+    bencher.bench(|| {
+        let pool = pool.clone();
+        rt.block_on(async {
+            execute(pool, n, JOBS_COUNT).await.unwrap();
+        })
+    });
+}
+
+#[divan::bench(args = CONCURRENCY, sample_size = 1, sample_count = 1)]
 fn run_1000_jobs_taking_1_ms(bencher: divan::Bencher, n: usize) {
     let rt = &tokio::runtime::Runtime::new().unwrap();
     let sleep_ms = 1;
