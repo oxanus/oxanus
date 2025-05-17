@@ -1,4 +1,3 @@
-use oxanus::Queue;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -62,21 +61,36 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     let url =
         std::env::var("PG_URL").unwrap_or_else(|_e| "postgresql://localhost/oxanus".to_string());
     let pool = sqlx::postgres::PgPool::connect(&url).await?;
+    let redis = redis::aio::ConnectionManager::new(
+        redis::Client::open(std::env::var("REDIS_URL").expect("REDIS_URL is not set")).unwrap(),
+    )
+    .await?;
     let data = oxanus::WorkerState::new(Connections { db: pool.clone() });
 
-    let queue_one = Queue::new("one", 1);
-    let queue_two = Queue::new("two", 1);
+    let queue_one = oxanus::QueueStatic {
+        name: "one".to_string(),
+    };
+    let queue_two = oxanus::QueueDynamic {
+        prefix: "two".to_string(),
+    };
+
+    let processor1 = oxanus::Processor::new()
+        .queue_static(&queue_one)
+        .queue_dynamic(&queue_two)
+        .concurrency(1);
 
     let config = oxanus::Config::new()
-        .register_queue(queue_one)
-        .register_queue(queue_two)
+        .register_processor(processor1)
+        // .register_queue(queue_one)
+        // .register_queue(queue_two)
         .register_worker::<Worker1>()
         .register_worker::<Worker2>()
-        .exit_when_idle();
+        .exit_when_idle()
+        .exit_when_finished(5);
 
-    oxanus::setup(&pool, &config).await?;
+    oxanus::setup(&redis, &config).await?;
     oxanus::enqueue(
-        &pool,
+        &redis,
         &queue_one,
         Worker1 {
             id: 1,
@@ -84,9 +98,14 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
         },
     )
     .await?;
-    oxanus::enqueue(&pool, &queue_two, Worker2 { id: 2, foo: 42 }).await?;
     oxanus::enqueue(
-        &pool,
+        &redis,
+        &queue_two.to_static("1"),
+        Worker2 { id: 2, foo: 42 },
+    )
+    .await?;
+    oxanus::enqueue(
+        &redis,
         &queue_one,
         Worker1 {
             id: 3,
@@ -94,8 +113,13 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
         },
     )
     .await?;
-    oxanus::enqueue(&pool, &&queue_two, Worker2 { id: 4, foo: 44 }).await?;
-    let stats = oxanus::run(&pool, config, data).await?;
+    oxanus::enqueue(
+        &redis,
+        &queue_two.to_static("2"),
+        Worker2 { id: 4, foo: 44 },
+    )
+    .await?;
+    let stats = oxanus::run(&redis, config, data).await?;
 
     println!("Stats: {:?}", stats);
 

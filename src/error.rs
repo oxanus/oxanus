@@ -14,4 +14,6 @@ pub enum OxanusError {
     TokioJoinError(#[from] tokio::task::JoinError),
     #[error("Sqlx error: {0}")]
     SqlxError(#[from] sqlx::Error),
+    #[error("Redis error: {0}")]
+    RedisError(#[from] redis::RedisError),
 }

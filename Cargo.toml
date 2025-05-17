@@ -5,7 +5,13 @@ edition = "2024"
 
 [dependencies]
 async-trait = "0.1"
+chrono = { version = "^0.4", features = ["serde"] }
 pgmq = "^0.30"
+redis = { version = "^0.31", features = [
+  "connection-manager",
+  "tcp_nodelay",
+  "tokio-comp",
+] }
 sqlx = { version = "^0.8", features = [
   "runtime-tokio",
   "tls-rustls-ring-webpki",

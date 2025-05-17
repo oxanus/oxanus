@@ -1,31 +1,31 @@
-#[derive(Debug, Clone, Copy)]
-pub struct Queue {
-    name: &'static str,
-    concurrency: usize,
+#[derive(Debug, Clone)]
+pub struct QueueStatic {
+    pub name: String,
 }
 
-impl Queue {
-    pub const fn new(name: &'static str, concurrency: usize) -> Self {
-        Self { name, concurrency }
-    }
+#[derive(Debug, Clone)]
+pub struct QueueDynamic {
+    pub prefix: String,
+}
 
-    pub const fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub const fn concurrency(&self) -> usize {
-        self.concurrency
-    }
-
-    pub fn config(&self) -> QueueConfig {
-        QueueConfig {
-            name: self.name().to_string(),
-            concurrency: self.concurrency(),
+impl QueueStatic {
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
         }
     }
 }
 
-pub struct QueueConfig {
-    pub name: String,
-    pub concurrency: usize,
+impl QueueDynamic {
+    pub fn new(prefix: &str) -> Self {
+        Self {
+            prefix: prefix.to_string(),
+        }
+    }
+
+    pub fn to_static(&self, suffix: &str) -> QueueStatic {
+        QueueStatic {
+            name: format!("{}{}", self.prefix, suffix),
+        }
+    }
 }

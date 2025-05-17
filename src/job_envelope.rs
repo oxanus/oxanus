@@ -9,6 +9,7 @@ use crate::{OxanusError, Worker};
 pub struct JobEnvelope {
     #[serde(default = "uuid::Uuid::new_v4")]
     pub uuid: Uuid,
+    pub queue: String,
     pub job: String,
     pub args: serde_json::Value,
     #[serde(default)]
@@ -21,7 +22,7 @@ pub struct JobEnvelopeMeta {
 }
 
 impl JobEnvelope {
-    pub fn new<T, DT, ET>(job: T) -> Result<Self, OxanusError>
+    pub fn new<T, DT, ET>(queue: String, job: T) -> Result<Self, OxanusError>
     where
         T: Worker<Data = DT, Error = ET> + serde::Serialize,
         DT: Send + Sync + Clone + 'static,
@@ -29,6 +30,7 @@ impl JobEnvelope {
     {
         Ok(Self {
             uuid: Uuid::new_v4(),
+            queue,
             job: type_name::<T>().to_string(),
             args: serde_json::to_value(&job)?,
             meta: JobEnvelopeMeta::default(),
@@ -38,6 +40,7 @@ impl JobEnvelope {
     pub fn with_retries_incremented(self) -> Self {
         Self {
             uuid: self.uuid,
+            queue: self.queue,
             job: self.job,
             args: self.args,
             meta: JobEnvelopeMeta {
