@@ -15,9 +15,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 pub use crate::config::Config;
 pub use crate::error::OxanusError;
 pub use crate::job_envelope::JobEnvelope;
-pub use crate::queue::{
-    QueueConfig, QueueConfigKind, QueueConfigRetry, QueueConfigRetryBackoff, QueueConfigTrait,
-};
+pub use crate::queue::{Queue, QueueConfig, QueueKind, QueueRetry, QueueRetryBackoff};
 pub use crate::worker::Worker;
 pub use crate::worker_registry::WorkerRegistry;
 pub use crate::worker_state::WorkerState;
@@ -68,7 +66,7 @@ pub async fn enqueue<
     ET: std::error::Error + Send + Sync + 'static,
 >(
     redis: &redis::aio::ConnectionManager,
-    queue: impl QueueConfigTrait,
+    queue: impl Queue,
     job: T,
 ) -> Result<i64, OxanusError>
 where
@@ -85,7 +83,7 @@ pub async fn enqueue_in<
     ET: std::error::Error + Send + Sync + 'static,
 >(
     redis: &redis::aio::ConnectionManager,
-    queue: impl QueueConfigTrait,
+    queue: impl Queue,
     job: T,
     delay: u64,
 ) -> Result<i64, OxanusError>
@@ -127,8 +125,8 @@ async fn run_redis_listeners(
     let mut redis = redis.clone();
 
     match queue_config.kind {
-        QueueConfigKind::Static { key } => all_queues.push(key),
-        QueueConfigKind::Dynamic { prefix } => {
+        QueueKind::Static { key } => all_queues.push(key),
+        QueueKind::Dynamic { prefix } => {
             let queues: Vec<String> = redis.keys(format!("{}*", prefix)).await.unwrap();
             all_queues.extend(queues);
         }

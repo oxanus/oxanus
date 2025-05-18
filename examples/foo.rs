@@ -8,29 +8,26 @@ pub struct Worker1 {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum ServiceError {
+pub enum WorkerError {
     #[error("Generic error: {0}")]
     GenericError(String),
 }
 
 #[derive(Debug, Clone)]
-pub struct Connections {
-    pub db: sqlx::postgres::PgPool,
-}
+pub struct WorkerState {}
 
 #[async_trait::async_trait]
 impl oxanus::Worker for Worker1 {
-    type Data = Connections;
-    type Error = ServiceError;
+    type Data = WorkerState;
+    type Error = WorkerError;
 
     async fn process(
         &self,
-        oxanus::WorkerState(_conns): &oxanus::WorkerState<Connections>,
-    ) -> Result<(), ServiceError> {
+        oxanus::WorkerState(_conns): &oxanus::WorkerState<WorkerState>,
+    ) -> Result<(), WorkerError> {
         tracing::info!("Job 1 {} started", self.id);
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
         tracing::info!("Job 1 {} done: {}", self.id, self.payload);
-        // Err(ServiceError::server_error("test"))
         Ok(())
     }
 }
@@ -43,13 +40,13 @@ pub struct Worker2 {
 
 #[async_trait::async_trait]
 impl oxanus::Worker for Worker2 {
-    type Data = Connections;
-    type Error = ServiceError;
+    type Data = WorkerState;
+    type Error = WorkerError;
 
     async fn process(
         &self,
-        oxanus::WorkerState(_conns): &oxanus::WorkerState<Connections>,
-    ) -> Result<(), ServiceError> {
+        oxanus::WorkerState(_conns): &oxanus::WorkerState<WorkerState>,
+    ) -> Result<(), WorkerError> {
         tracing::info!("Job 2 {} started", self.id);
         tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
         tracing::info!("Job 2 {} done: {}", self.id, self.foo);
@@ -68,27 +65,27 @@ pub enum Animal {
     Bird,
 }
 
-impl oxanus::QueueConfigTrait for QueueOne {
+impl oxanus::Queue for QueueOne {
     fn key(&self) -> String {
         "one".to_string()
     }
 
     fn to_config() -> oxanus::QueueConfig {
         oxanus::QueueConfig {
-            kind: oxanus::QueueConfigKind::Static {
+            kind: oxanus::QueueKind::Static {
                 key: "one".to_string(),
             },
             concurrency: 1,
-            retry: oxanus::QueueConfigRetry {
+            retry: oxanus::QueueRetry {
                 max_retries: 2,
                 delay: 3,
-                backoff: oxanus::QueueConfigRetryBackoff::None,
+                backoff: oxanus::QueueRetryBackoff::None,
             },
         }
     }
 }
 
-impl oxanus::QueueConfigTrait for QueueTwo {
+impl oxanus::Queue for QueueTwo {
     fn key(&self) -> String {
         // probably use Display trait here or specific one
         format!("two:{:?}:{:?}", self.0, self.1)
@@ -96,14 +93,14 @@ impl oxanus::QueueConfigTrait for QueueTwo {
 
     fn to_config() -> oxanus::QueueConfig {
         oxanus::QueueConfig {
-            kind: oxanus::QueueConfigKind::Dynamic {
+            kind: oxanus::QueueKind::Dynamic {
                 prefix: "two".to_string(),
             },
             concurrency: 1,
-            retry: oxanus::QueueConfigRetry {
+            retry: oxanus::QueueRetry {
                 max_retries: 2,
                 delay: 3,
-                backoff: oxanus::QueueConfigRetryBackoff::Exponential { factor: 2.0 },
+                backoff: oxanus::QueueRetryBackoff::Exponential { factor: 2.0 },
             },
         }
     }
@@ -116,13 +113,10 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
         .with(EnvFilter::from_default_env())
         .init();
 
-    let url =
-        std::env::var("PG_URL").unwrap_or_else(|_e| "postgresql://localhost/oxanus".to_string());
-    let pool = sqlx::postgres::PgPool::connect(&url).await?;
     let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL is not set");
     let client = redis::Client::open(redis_url.clone()).expect("Failed to open Redis client");
     let redis = redis::aio::ConnectionManager::new(client).await?;
-    let data = oxanus::WorkerState::new(Connections { db: pool.clone() });
+    let data = oxanus::WorkerState::new(WorkerState {});
 
     let config = oxanus::Config::new()
         .register_queue::<QueueOne>()

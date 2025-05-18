@@ -11,11 +11,6 @@ redis = { version = "^0.31", features = [
   "tcp_nodelay",
   "tokio-comp",
 ] }
-sqlx = { version = "^0.8", features = [
-  "runtime-tokio",
-  "tls-rustls-ring-webpki",
-  "postgres",
-] }
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = { version = "^1.0", features = ["preserve_order"] }
 thiserror = "^2.0"

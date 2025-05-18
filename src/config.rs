@@ -1,4 +1,4 @@
-use crate::queue::{QueueConfig, QueueConfigTrait};
+use crate::queue::{Queue, QueueConfig};
 use crate::worker::Worker;
 use crate::worker_registry::WorkerRegistry;
 
@@ -19,7 +19,7 @@ impl<DT, ET> Config<DT, ET> {
 
     pub fn register_queue<Q>(mut self) -> Self
     where
-        Q: QueueConfigTrait,
+        Q: Queue,
     {
         self.queues.push(Q::to_config());
         self
@@ -27,7 +27,7 @@ impl<DT, ET> Config<DT, ET> {
 
     pub fn register_queue_with_concurrency<Q>(mut self, concurrency: usize) -> Self
     where
-        Q: QueueConfigTrait,
+        Q: Queue,
     {
         let mut config = Q::to_config();
         config.concurrency = concurrency;
