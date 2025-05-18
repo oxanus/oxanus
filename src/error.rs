@@ -8,8 +8,6 @@ pub enum OxanusError {
     SemaphoreError(#[from] tokio::sync::AcquireError),
     #[error("Job factory error: {0}")]
     JobFactoryError(String),
-    #[error("Pgmq error: {0}")]
-    PgmqError(#[from] pgmq::errors::PgmqError),
     #[error("Worker error: {0}")]
     TokioJoinError(#[from] tokio::task::JoinError),
     #[error("Sqlx error: {0}")]

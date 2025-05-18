@@ -1,13 +1,11 @@
 pub mod config;
 pub mod error;
 pub mod job_envelope;
-pub mod processor;
 pub mod queue;
 pub mod worker;
 pub mod worker_registry;
 pub mod worker_state;
 
-// use processor::ProcessorQueue;
 use redis::AsyncCommands;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -16,7 +14,6 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 pub use crate::config::Config;
 pub use crate::error::OxanusError;
 pub use crate::job_envelope::JobEnvelope;
-// pub use crate::processor::Processor;
 pub use crate::queue::{
     QueueConfig, QueueConfigKind, QueueConfigRetry, QueueConfigRetryBackoff, QueueConfigTrait,
 };
@@ -31,25 +28,14 @@ pub struct Stats {
     pub failed: u64,
 }
 
-pub async fn redis() -> Result<redis::aio::ConnectionManager, redis::RedisError> {
-    redis::aio::ConnectionManager::new(
-        redis::Client::open(std::env::var("REDIS_URL").expect("REDIS_URL is not set")).unwrap(),
-    )
-    .await
-}
-
 pub async fn run<
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 >(
-    // pool: &Pool<Postgres>,
     redis: &redis::Client,
     config: Config<DT, ET>,
     data: WorkerState<DT>,
 ) -> Result<Stats, OxanusError> {
-    // let redis = redis().await?;
-    // let pgmq = pgmq::PGMQueue::new_with_pool(pool.clone()).await;
-    // let queue_configs: Vec<QueueConfig> = config.queues.values().map(|q| q.config()).collect();
     let config = Arc::new(config);
     let mut joinset = tokio::task::JoinSet::new();
     let stats = Arc::new(Mutex::new(Stats::default()));
@@ -57,7 +43,6 @@ pub async fn run<
     for queue_config in &config.queues {
         let redis = redis::aio::ConnectionManager::new(redis.clone()).await?;
         joinset.spawn(run_queue_workers(
-            // pgmq.clone(),
             redis.clone(),
             config.clone(),
             stats.clone(),
@@ -111,11 +96,7 @@ where
     let mut redis = redis.clone();
     let queue_key = queue.key();
 
-    // let pgmq = pgmq::PGMQueue::new_with_pool(pool.clone()).await;
     let envelope = JobEnvelope::new(queue_key.clone(), job)?;
-    // let msg_id = pgmq
-    //     .send_delay(queue.name(), &serde_json::to_value(&envelope)?, delay)
-    //     .await?;
 
     let envelope_str = serde_json::to_string(&envelope)?;
 
@@ -152,15 +133,6 @@ async fn redis_listener(
         }
     }
 
-    dbg!(&all_queues);
-
-    // dbg!(&all_queues);
-
-    // for queue in all_queues {
-    //     let queue = queue.clone();
-    //     tokio::spawn(redis_listener_worker(redis.clone(), queue, job_tx.clone()));
-    // }
-
     loop {
         if all_queues.is_empty() {
             // there should be another process that will update queues
@@ -169,10 +141,7 @@ async fn redis_listener(
             continue;
         }
 
-        println!("Acquiring permit on queues: {:?}", &all_queues);
         let permit = worker_capacity.clone().acquire_owned().await.unwrap();
-        println!("Acquired permit on queues: {:?}", &all_queues);
-        println!("blpop {:?}", &all_queues);
         let msg: redis::Value = redis
             .blpop(&all_queues, 10.0)
             .await
@@ -182,12 +151,8 @@ async fn redis_listener(
             redis::FromRedisValue::from_redis_value(&msg).expect("Failed to parse job");
 
         let (_q, msg) = match value {
-            Some(value) => {
-                println!("Read job from queues: {:?}", &all_queues);
-                value
-            }
+            Some(value) => value,
             None => {
-                println!("No job found on queues: {:?}", &all_queues);
                 continue;
             }
         };
@@ -199,8 +164,6 @@ async fn redis_listener(
                     job: msg,
                     permit,
                 };
-                dbg!(&job);
-                println!("Sending job to worker");
                 job_tx
                     .send(job)
                     .await
@@ -213,46 +176,10 @@ async fn redis_listener(
     }
 }
 
-// async fn redis_listener_worker(
-//     redis: redis::aio::ConnectionManager,
-//     queue: String,
-//     job_tx: mpsc::Sender<serde_json::Value>,
-// ) {
-//     tracing::info!("Redis listener worker started for queue: {}", queue);
-//     let mut redis = redis.clone();
-//     loop {
-//         let msg: redis::Value = redis
-//             .blpop(&queue, 10.0)
-//             .await
-//             .expect("Failed to read job from queue");
-
-//         dbg!(&msg);
-//         let value: Option<(String, String)> =
-//             redis::FromRedisValue::from_redis_value(&msg).expect("Failed to parse job");
-
-//         let (_q, msg) = match value {
-//             Some(value) => value,
-//             None => {
-//                 continue;
-//             }
-//         };
-
-//         match serde_json::from_str(&msg) {
-//             Ok(msg) => {
-//                 job_tx.send(msg).await.unwrap();
-//             }
-//             Err(e) => {
-//                 println!("Failed to parse job: {}", e);
-//             }
-//         }
-//     }
-// }
-
 pub async fn run_queue_workers<
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 >(
-    // pgmq: pgmq::PGMQueue,
     redis: redis::aio::ConnectionManager,
     config: Arc<Config<DT, ET>>,
     stats: Arc<Mutex<Stats>>,
@@ -278,8 +205,7 @@ pub async fn run_queue_workers<
     ));
 
     loop {
-        println!("Waiting for job");
-        let (_queue, job_value, permit) = match job_rx.recv().await {
+        let (queue, job_value, permit) = match job_rx.recv().await {
             Some(job) => match job {
                 WorkerEvent::Job { queue, job, permit } => (queue, job, permit),
                 WorkerEvent::Exit => {
@@ -290,7 +216,6 @@ pub async fn run_queue_workers<
                 continue;
             }
         };
-        println!("Received job");
 
         let envelope: JobEnvelope = match serde_json::from_value(job_value) {
             Ok(envelope) => envelope,
@@ -309,21 +234,12 @@ pub async fn run_queue_workers<
         };
 
         tokio::spawn({
-            // let pgmq = pgmq.clone();
             let data = data.clone();
             let result_tx = result_tx.clone();
             let redis = redis.clone();
             async move {
                 let data = data.clone();
-                let result = run_worker(
-                    // pgmq,
-                    redis.clone(),
-                    "queue_tbd".to_string(),
-                    job,
-                    envelope,
-                    data,
-                )
-                .await;
+                let result = run_worker(redis.clone(), queue, job, envelope, data).await;
                 drop(permit);
                 result_tx
                     .send(result)
@@ -347,7 +263,6 @@ enum WorkerEvent {
 }
 
 async fn run_worker<DT: Send + Sync + Clone + 'static, ET: std::error::Error + Send + Sync>(
-    // pgmq: pgmq::PGMQueue,
     redis: redis::aio::ConnectionManager,
     queue: String,
     job: BoxedWorker<DT, ET>,
@@ -417,7 +332,6 @@ async fn collect_results<
                 Err(_e) => stats.failed += 1,
             }
 
-            dbg!(&stats);
             stats.processed
         } else {
             0

@@ -1,13 +1,10 @@
 use crate::queue::{QueueConfig, QueueConfigTrait};
-// use crate::queue::Queue;
-// use crate::Processor;
 use crate::worker::Worker;
 use crate::worker_registry::WorkerRegistry;
 
 pub struct Config<DT, ET> {
     pub registry: WorkerRegistry<DT, ET>,
     pub queues: Vec<QueueConfig>,
-    // pub processors: Vec<Processor>,
     pub exit_when_idle: bool,
     pub exit_when_finished: Option<u64>,
 }
@@ -17,16 +14,10 @@ impl<DT, ET> Config<DT, ET> {
         Self {
             registry: WorkerRegistry::new(),
             queues: Vec::new(),
-            // processors: Vec::new(),
             exit_when_idle: false,
             exit_when_finished: None,
         }
     }
-
-    // pub fn register_processor(mut self, processor: Processor) -> Self {
-    //     self.processors.push(processor);
-    //     self
-    // }
 
     pub fn register_queue<Q>(mut self) -> Self
     where

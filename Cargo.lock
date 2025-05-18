@@ -939,13 +939,12 @@ dependencies = [
  "async-trait",
  "chrono",
  "divan",
- "pgmq",
  "redis",
  "serde",
  "serde_json",
  "sqlx",
  "testresult",
- "thiserror 2.0.12",
+ "thiserror",
  "tokio",
  "tracing",
  "uuid",
@@ -994,22 +993,6 @@ name = "percent-encoding"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
-
-[[package]]
-name = "pgmq"
-version = "0.30.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bb32965d2015d67a0d769dee884875d4d85218201791f74576507966167569f"
-dependencies = [
- "chrono",
- "log",
- "serde",
- "serde_json",
- "sqlx",
- "thiserror 1.0.69",
- "tokio",
- "url",
-]
 
 [[package]]
 name = "pin-project-lite"
@@ -1433,7 +1416,6 @@ checksum = "f743f2a3cea30a58cd479013f75550e879009e3a02f616f18ca699335aa248c3"
 dependencies = [
  "base64",
  "bytes",
- "chrono",
  "crc",
  "crossbeam-queue",
  "either",
@@ -1454,7 +1436,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "smallvec",
- "thiserror 2.0.12",
+ "thiserror",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -1512,7 +1494,6 @@ dependencies = [
  "bitflags",
  "byteorder",
  "bytes",
- "chrono",
  "crc",
  "digest",
  "dotenvy",
@@ -1539,7 +1520,7 @@ dependencies = [
  "smallvec",
  "sqlx-core",
  "stringprep",
- "thiserror 2.0.12",
+ "thiserror",
  "tracing",
  "whoami",
 ]
@@ -1554,7 +1535,6 @@ dependencies = [
  "base64",
  "bitflags",
  "byteorder",
- "chrono",
  "crc",
  "dotenvy",
  "etcetera",
@@ -1577,7 +1557,7 @@ dependencies = [
  "smallvec",
  "sqlx-core",
  "stringprep",
- "thiserror 2.0.12",
+ "thiserror",
  "tracing",
  "whoami",
 ]
@@ -1589,7 +1569,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c26083e9a520e8eb87a06b12347679b142dc2ea29e6e409f805644a7a979a5bc"
 dependencies = [
  "atoi",
- "chrono",
  "flume",
  "futures-channel",
  "futures-core",
@@ -1602,7 +1581,7 @@ dependencies = [
  "serde",
  "serde_urlencoded",
  "sqlx-core",
- "thiserror 2.0.12",
+ "thiserror",
  "tracing",
  "url",
 ]
@@ -1683,31 +1662,11 @@ checksum = "614b328ff036a4ef882c61570f72918f7e9c5bee1da33f8e7f91e01daee7e56c"
 
 [[package]]
 name = "thiserror"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
-dependencies = [
- "thiserror-impl 1.0.69",
-]
-
-[[package]]
-name = "thiserror"
 version = "2.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "567b8a2dae586314f7be2a752ec7474332959c6460e02bde30d702a66d488708"
 dependencies = [
- "thiserror-impl 2.0.12",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
+ "thiserror-impl",
 ]
 
 [[package]]
