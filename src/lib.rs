@@ -7,6 +7,7 @@ pub mod worker_registry;
 pub mod worker_state;
 
 use redis::AsyncCommands;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
@@ -116,11 +117,11 @@ where
     Ok(0)
 }
 
-async fn redis_listener(
+async fn run_redis_listeners(
     redis: redis::aio::ConnectionManager,
     queue_config: QueueConfig,
     job_tx: mpsc::Sender<WorkerEvent>,
-    worker_capacity: Arc<Semaphore>,
+    semaphores: Arc<KeyedSemaphores>,
 ) {
     let mut all_queues = Vec::new();
     let mut redis = redis.clone();
@@ -133,17 +134,29 @@ async fn redis_listener(
         }
     }
 
-    loop {
-        if all_queues.is_empty() {
-            // there should be another process that will update queues
-            println!("No queues found, sleeping for 1 second");
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            continue;
-        }
+    for queue in all_queues {
+        tokio::spawn(redis_listener(
+            redis.clone(),
+            queue,
+            job_tx.clone(),
+            semaphores.clone(),
+        ));
+    }
+}
 
-        let permit = worker_capacity.clone().acquire_owned().await.unwrap();
+async fn redis_listener(
+    redis: redis::aio::ConnectionManager,
+    queue: String,
+    job_tx: mpsc::Sender<WorkerEvent>,
+    semaphores: Arc<KeyedSemaphores>,
+) {
+    let mut redis = redis.clone();
+
+    loop {
+        let semaphore = semaphores.get_or_create(queue.clone()).await;
+        let permit = semaphore.acquire_owned().await.unwrap();
         let msg: redis::Value = redis
-            .blpop(&all_queues, 10.0)
+            .blpop(&queue, 10.0)
             .await
             .expect("Failed to read job from queue");
 
@@ -176,6 +189,28 @@ async fn redis_listener(
     }
 }
 
+pub struct KeyedSemaphores {
+    permits: usize,
+    inner: Mutex<HashMap<String, Arc<Semaphore>>>,
+}
+
+impl KeyedSemaphores {
+    pub fn new(permits: usize) -> Self {
+        Self {
+            permits,
+            inner: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub async fn get_or_create(&self, key: String) -> Arc<Semaphore> {
+        let mut map = self.inner.lock().expect("Failed to lock semaphore map");
+        Arc::clone(
+            map.entry(key)
+                .or_insert_with(|| Arc::new(Semaphore::new(self.permits))),
+        )
+    }
+}
+
 pub async fn run_queue_workers<
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
@@ -189,7 +224,7 @@ pub async fn run_queue_workers<
     let concurrency = queue_config.concurrency;
     let (result_tx, result_rx) = mpsc::channel::<Result<(), ET>>(concurrency);
     let (job_tx, mut job_rx) = mpsc::channel::<WorkerEvent>(concurrency);
-    let worker_capacity = Arc::new(Semaphore::new(concurrency));
+    let semaphores = Arc::new(KeyedSemaphores::new(concurrency));
 
     tokio::spawn(collect_results(
         result_rx,
@@ -197,12 +232,13 @@ pub async fn run_queue_workers<
         job_tx.clone(),
         stats.clone(),
     ));
-    tokio::spawn(redis_listener(
+    run_redis_listeners(
         redis.clone(),
         queue_config.clone(),
         job_tx.clone(),
-        worker_capacity.clone(),
-    ));
+        semaphores.clone(),
+    )
+    .await;
 
     loop {
         let (queue, job_value, permit) = match job_rx.recv().await {

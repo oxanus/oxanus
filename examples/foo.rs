@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Worker1 {
@@ -49,9 +50,9 @@ impl oxanus::Worker for Worker2 {
         &self,
         oxanus::WorkerState(_conns): &oxanus::WorkerState<Connections>,
     ) -> Result<(), ServiceError> {
-        println!("Job 2 {} started", self.id);
+        tracing::info!("Job 2 {} started", self.id);
         tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
-        println!("Job 2 {} done: {}", self.id, self.foo);
+        tracing::info!("Job 2 {} done: {}", self.id, self.foo);
         Ok(())
     }
 }
@@ -110,6 +111,11 @@ impl oxanus::QueueConfigTrait for QueueTwo {
 
 #[tokio::main]
 pub async fn main() -> Result<(), oxanus::OxanusError> {
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
     let url =
         std::env::var("PG_URL").unwrap_or_else(|_e| "postgresql://localhost/oxanus".to_string());
     let pool = sqlx::postgres::PgPool::connect(&url).await?;
