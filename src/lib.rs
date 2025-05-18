@@ -2,23 +2,30 @@ pub mod config;
 pub mod error;
 pub mod job_envelope;
 pub mod queue;
+mod semaphores_map;
 pub mod worker;
-pub mod worker_registry;
+mod worker_event;
+mod worker_registry;
 pub mod worker_state;
 
 use redis::AsyncCommands;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
+use tokio::sync::mpsc;
 
 pub use crate::config::Config;
 pub use crate::error::OxanusError;
 pub use crate::job_envelope::JobEnvelope;
 pub use crate::queue::{Queue, QueueConfig, QueueKind, QueueRetry, QueueRetryBackoff};
+use crate::semaphores_map::SemaphoresMap;
+use crate::worker::BoxedWorker;
 pub use crate::worker::Worker;
-pub use crate::worker_registry::WorkerRegistry;
+use crate::worker_event::WorkerEvent;
 pub use crate::worker_state::WorkerState;
+
+const DEAD_QUEUE: &str = "oxanus:dead";
+const RETRIES_QUEUE: &str = "oxanus:retries";
+const SCHEDULED_QUEUE: &str = "oxanus:scheduled";
 
 #[derive(Default, Debug)]
 pub struct Stats {
@@ -103,7 +110,7 @@ where
         let now = chrono::Utc::now().timestamp_micros();
         let _: i32 = redis
             .zadd(
-                "oxanus:scheduled",
+                SCHEDULED_QUEUE,
                 envelope_str,
                 now + 1_000_000 * delay as i64,
             )
@@ -119,7 +126,7 @@ async fn run_redis_listeners(
     redis: redis::aio::ConnectionManager,
     queue_config: QueueConfig,
     job_tx: mpsc::Sender<WorkerEvent>,
-    semaphores: Arc<KeyedSemaphores>,
+    semaphores: Arc<SemaphoresMap>,
 ) {
     let mut all_queues = Vec::new();
     let mut redis = redis.clone();
@@ -146,7 +153,7 @@ async fn redis_listener(
     redis: redis::aio::ConnectionManager,
     queue: String,
     job_tx: mpsc::Sender<WorkerEvent>,
-    semaphores: Arc<KeyedSemaphores>,
+    semaphores: Arc<SemaphoresMap>,
 ) {
     let mut redis = redis.clone();
 
@@ -187,28 +194,6 @@ async fn redis_listener(
     }
 }
 
-pub struct KeyedSemaphores {
-    permits: usize,
-    inner: Mutex<HashMap<String, Arc<Semaphore>>>,
-}
-
-impl KeyedSemaphores {
-    pub fn new(permits: usize) -> Self {
-        Self {
-            permits,
-            inner: Mutex::new(HashMap::new()),
-        }
-    }
-
-    pub async fn get_or_create(&self, key: String) -> Arc<Semaphore> {
-        let mut map = self.inner.lock().expect("Failed to lock semaphore map");
-        Arc::clone(
-            map.entry(key)
-                .or_insert_with(|| Arc::new(Semaphore::new(self.permits))),
-        )
-    }
-}
-
 pub async fn run_queue_workers<
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
@@ -222,7 +207,7 @@ pub async fn run_queue_workers<
     let concurrency = queue_config.concurrency;
     let (result_tx, result_rx) = mpsc::channel::<Result<(), ET>>(concurrency);
     let (job_tx, mut job_rx) = mpsc::channel::<WorkerEvent>(concurrency);
-    let semaphores = Arc::new(KeyedSemaphores::new(concurrency));
+    let semaphores = Arc::new(SemaphoresMap::new(concurrency));
 
     tokio::spawn(collect_results(
         result_rx,
@@ -284,18 +269,6 @@ pub async fn run_queue_workers<
     }
 }
 
-pub type BoxedWorker<DT, ET> = Box<dyn Worker<Data = DT, Error = ET>>;
-
-#[derive(Debug)]
-enum WorkerEvent {
-    Job {
-        queue: String,
-        job: serde_json::Value,
-        permit: OwnedSemaphorePermit,
-    },
-    Exit,
-}
-
 async fn run_worker<DT: Send + Sync + Clone + 'static, ET: std::error::Error + Send + Sync>(
     redis: redis::aio::ConnectionManager,
     queue: String,
@@ -303,47 +276,43 @@ async fn run_worker<DT: Send + Sync + Clone + 'static, ET: std::error::Error + S
     envelope: JobEnvelope,
     data: WorkerState<DT>,
 ) -> Result<(), ET> {
-    // println!("Worker started");
     tracing::info!("Queue: {} - Worker started", queue);
+
     let mut redis = redis.clone();
-    // println!("Processing job");
     let result = job.process(&data).await;
-    // println!("Job processed");
     let is_err = result.is_err();
     let max_retries = job.max_retries();
     let retry_delay = job.retry_delay(envelope.meta.retries);
 
-    let can_archive = if is_err {
+    if is_err {
         if envelope.meta.retries < max_retries {
-            let updated_job = envelope.with_retries_incremented();
-            let updated_job_str =
-                serde_json::to_string(&updated_job).expect("Failed to serialize job");
+            let updated_envelope = envelope.with_retries_incremented();
+            let updated_envelope_str =
+                serde_json::to_string(&updated_envelope).expect("Failed to serialize job");
             let _: i32 = redis
-                .rpush(&queue, updated_job_str.clone())
+                .rpush(&queue, updated_envelope_str.clone())
                 .await
                 .expect("Failed to send job to queue");
 
             let now = chrono::Utc::now().timestamp_micros();
             let _: Option<i64> = redis
                 .zadd(
-                    "oxanus:retries",
-                    updated_job_str,
+                    RETRIES_QUEUE,
+                    updated_envelope_str,
                     now + 1_000_000 * retry_delay as i64,
                 )
                 .await
                 .expect("Failed to send job to queue");
-
-            true
         } else {
-            println!("Job {} failed after {} retries", envelope.uuid, max_retries);
-            true
+            let envelope_str = serde_json::to_string(&envelope).expect("Failed to serialize job");
+            let (_, _): (i32, ()) = redis::pipe()
+                .lpush(DEAD_QUEUE, envelope_str)
+                .ltrim(DEAD_QUEUE, 0, 1000)
+                .query_async(&mut redis)
+                .await
+                .expect("Failed to send job to queue");
+            tracing::error!("Job {} failed after {} retries", envelope.uuid, max_retries);
         }
-    } else {
-        true
-    };
-
-    if can_archive {
-        // TODO: for redis
     }
 
     result

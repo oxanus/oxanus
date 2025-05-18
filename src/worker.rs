@@ -1,5 +1,7 @@
 use crate::worker_state::WorkerState;
 
+pub type BoxedWorker<DT, ET> = Box<dyn Worker<Data = DT, Error = ET>>;
+
 #[async_trait::async_trait]
 pub trait Worker: Send + Sync {
     type Data: Clone + Send + Sync;
