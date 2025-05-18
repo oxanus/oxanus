@@ -113,10 +113,9 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     let url =
         std::env::var("PG_URL").unwrap_or_else(|_e| "postgresql://localhost/oxanus".to_string());
     let pool = sqlx::postgres::PgPool::connect(&url).await?;
-    let redis = redis::aio::ConnectionManager::new(
-        redis::Client::open(std::env::var("REDIS_URL").expect("REDIS_URL is not set")).unwrap(),
-    )
-    .await?;
+    let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL is not set");
+    let client = redis::Client::open(redis_url.clone()).expect("Failed to open Redis client");
+    let redis = redis::aio::ConnectionManager::new(client).await?;
     let data = oxanus::WorkerState::new(Connections { db: pool.clone() });
 
     let config = oxanus::Config::new()
@@ -127,7 +126,6 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     // .exit_when_idle()
     // .exit_when_finished(2);
 
-    oxanus::setup(&redis, &config).await?;
     oxanus::enqueue(
         &redis,
         QueueOne,
@@ -148,7 +146,9 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     )
     .await?;
     oxanus::enqueue(&redis, QueueTwo(Animal::Cat, 2), Worker2 { id: 4, foo: 44 }).await?;
-    let stats = oxanus::run(&redis, config, data).await?;
+
+    let client = redis::Client::open(redis_url).expect("Failed to open Redis client");
+    let stats = oxanus::run(&client, config, data).await?;
 
     println!("Stats: {:?}", stats);
 

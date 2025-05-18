@@ -64,7 +64,7 @@ impl oxanus::Worker for WorkerNoop {
 fn run_1000_jobs_taking_0_ms(bencher: divan::Bencher, n: usize) {
     let rt = &tokio::runtime::Runtime::new().unwrap();
     let sleep_ms = 0;
-    let pool = rt.block_on(async { setup(n, JOBS_COUNT, sleep_ms).await.unwrap() });
+    let pool = rt.block_on(async { setup(JOBS_COUNT, sleep_ms).await.unwrap() });
 
     bencher.bench(|| {
         let pool = pool.clone();
@@ -78,7 +78,7 @@ fn run_1000_jobs_taking_0_ms(bencher: divan::Bencher, n: usize) {
 fn run_1000_jobs_taking_1_ms(bencher: divan::Bencher, n: usize) {
     let rt = &tokio::runtime::Runtime::new().unwrap();
     let sleep_ms = 1;
-    let pool = rt.block_on(async { setup(n, JOBS_COUNT, sleep_ms).await.unwrap() });
+    let pool = rt.block_on(async { setup(JOBS_COUNT, sleep_ms).await.unwrap() });
 
     bencher.bench(|| {
         let pool = pool.clone();
@@ -92,7 +92,7 @@ fn run_1000_jobs_taking_1_ms(bencher: divan::Bencher, n: usize) {
 fn run_1000_jobs_taking_2_ms(bencher: divan::Bencher, n: usize) {
     let rt = &tokio::runtime::Runtime::new().unwrap();
     let sleep_ms = 2;
-    let pool = rt.block_on(async { setup(n, JOBS_COUNT, sleep_ms).await.unwrap() });
+    let pool = rt.block_on(async { setup(JOBS_COUNT, sleep_ms).await.unwrap() });
 
     bencher.bench(|| {
         let pool = pool.clone();
@@ -106,7 +106,7 @@ fn run_1000_jobs_taking_2_ms(bencher: divan::Bencher, n: usize) {
 fn run_1000_jobs_taking_10_ms(bencher: divan::Bencher, n: usize) {
     let rt = &tokio::runtime::Runtime::new().unwrap();
     let sleep_ms = 10;
-    let pool = rt.block_on(async { setup(n, JOBS_COUNT, sleep_ms).await.unwrap() });
+    let pool = rt.block_on(async { setup(JOBS_COUNT, sleep_ms).await.unwrap() });
 
     bencher.bench(|| {
         let pool = pool.clone();
@@ -117,7 +117,6 @@ fn run_1000_jobs_taking_10_ms(bencher: divan::Bencher, n: usize) {
 }
 
 async fn setup(
-    concurrency: usize,
     jobs_count: u64,
     sleep_ms: u64,
 ) -> Result<sqlx::postgres::PgPool, oxanus::OxanusError> {
@@ -128,10 +127,6 @@ async fn setup(
         redis::Client::open(std::env::var("REDIS_URL").expect("REDIS_URL is not set")).unwrap(),
     )
     .await?;
-
-    let config = build_config(concurrency);
-
-    oxanus::setup(&redis, &config).await?;
 
     for _ in 0..jobs_count {
         oxanus::enqueue(&redis, QueueOne, WorkerNoop { sleep_ms }).await?;
@@ -145,14 +140,12 @@ async fn execute(
     concurrency: usize,
     jobs_count: u64,
 ) -> Result<(), oxanus::OxanusError> {
-    let redis = redis::aio::ConnectionManager::new(
-        redis::Client::open(std::env::var("REDIS_URL").expect("REDIS_URL is not set")).unwrap(),
-    )
-    .await?;
+    let client =
+        redis::Client::open(std::env::var("REDIS_URL").expect("REDIS_URL is not set")).unwrap();
     let config = build_config(concurrency).exit_when_finished(jobs_count);
     let data = oxanus::WorkerState::new(Connections { db: pool.clone() });
 
-    let stats = oxanus::run(&redis, config, data).await?;
+    let stats = oxanus::run(&client, config, data).await?;
 
     assert_eq!(stats.processed, jobs_count);
     assert_eq!(stats.succeeded, jobs_count);

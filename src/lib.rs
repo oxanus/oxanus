@@ -43,7 +43,7 @@ pub async fn run<
     ET: std::error::Error + Send + Sync + 'static,
 >(
     // pool: &Pool<Postgres>,
-    redis: &redis::aio::ConnectionManager,
+    redis: &redis::Client,
     config: Config<DT, ET>,
     data: WorkerState<DT>,
 ) -> Result<Stats, OxanusError> {
@@ -55,6 +55,7 @@ pub async fn run<
     let stats = Arc::new(Mutex::new(Stats::default()));
 
     for queue_config in &config.queues {
+        let redis = redis::aio::ConnectionManager::new(redis.clone()).await?;
         joinset.spawn(run_queue_workers(
             // pgmq.clone(),
             redis.clone(),
@@ -73,22 +74,6 @@ pub async fn run<
         .expect("Failed to unwrap Mutex - it was poisoned");
 
     Ok(stats)
-}
-
-pub async fn setup<
-    DT: Send + Sync + Clone + 'static,
-    ET: std::error::Error + Send + Sync + 'static,
->(
-    _redis: &redis::aio::ConnectionManager,
-    _config: &Config<DT, ET>,
-) -> Result<(), OxanusError> {
-    // let pgmq = pgmq::PGMQueue::new_with_pool(pool.clone()).await;
-
-    // for queue in config.queues.values() {
-    //     pgmq.create(queue.name()).await.ok();
-    // }
-
-    Ok(())
 }
 
 pub async fn enqueue<
