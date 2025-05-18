@@ -2,7 +2,7 @@ use crate::worker_state::WorkerState;
 
 #[async_trait::async_trait]
 pub trait Worker: Send + Sync {
-    type Data: Clone;
+    type Data: Clone + Send + Sync;
     type Error: std::error::Error + Send + Sync;
 
     async fn process(&self, data: &WorkerState<Self::Data>) -> Result<(), Self::Error>;

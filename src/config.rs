@@ -1,14 +1,13 @@
-use std::collections::HashMap;
-
+use crate::queue::{QueueConfig, QueueConfigTrait};
 // use crate::queue::Queue;
-use crate::Processor;
+// use crate::Processor;
 use crate::worker::Worker;
 use crate::worker_registry::WorkerRegistry;
 
 pub struct Config<DT, ET> {
     pub registry: WorkerRegistry<DT, ET>,
-    // pub queues: HashMap<String, Queue>,
-    pub processors: Vec<Processor>,
+    pub queues: Vec<QueueConfig>,
+    // pub processors: Vec<Processor>,
     pub exit_when_idle: bool,
     pub exit_when_finished: Option<u64>,
 }
@@ -17,22 +16,35 @@ impl<DT, ET> Config<DT, ET> {
     pub fn new() -> Self {
         Self {
             registry: WorkerRegistry::new(),
-            // queues: HashMap::new(),
-            processors: Vec::new(),
+            queues: Vec::new(),
+            // processors: Vec::new(),
             exit_when_idle: false,
             exit_when_finished: None,
         }
     }
 
-    pub fn register_processor(mut self, processor: Processor) -> Self {
-        self.processors.push(processor);
+    // pub fn register_processor(mut self, processor: Processor) -> Self {
+    //     self.processors.push(processor);
+    //     self
+    // }
+
+    pub fn register_queue<Q>(mut self) -> Self
+    where
+        Q: QueueConfigTrait,
+    {
+        self.queues.push(Q::to_config());
         self
     }
 
-    // pub fn register_queue(mut self, queue: Queue) -> Self {
-    //     self.queues.insert(queue.name().to_string(), queue);
-    //     self
-    // }
+    pub fn register_queue_with_concurrency<Q>(mut self, concurrency: usize) -> Self
+    where
+        Q: QueueConfigTrait,
+    {
+        let mut config = Q::to_config();
+        config.concurrency = concurrency;
+        self.queues.push(config);
+        self
+    }
 
     pub fn register_worker<T>(mut self) -> Self
     where

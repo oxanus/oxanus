@@ -21,6 +21,28 @@ pub struct Connections {
     pub db: sqlx::postgres::PgPool,
 }
 
+pub struct QueueOne;
+
+impl oxanus::QueueConfigTrait for QueueOne {
+    fn key(&self) -> String {
+        "one".to_string()
+    }
+
+    fn to_config() -> oxanus::QueueConfig {
+        oxanus::QueueConfig {
+            kind: oxanus::QueueConfigKind::Static {
+                key: "one".to_string(),
+            },
+            concurrency: 1,
+            retry: oxanus::QueueConfigRetry {
+                max_retries: 0,
+                delay: 0,
+                backoff: oxanus::QueueConfigRetryBackoff::None,
+            },
+        }
+    }
+}
+
 const JOBS_COUNT: u64 = 1000;
 const CONCURRENCY: &[usize] = &[1, 2, 4, 8, 12, 16, 512];
 
@@ -107,13 +129,12 @@ async fn setup(
     )
     .await?;
 
-    let queue = oxanus::QueueStatic::new("one");
-    let config = build_config(queue.clone(), concurrency);
+    let config = build_config(concurrency);
 
     oxanus::setup(&redis, &config).await?;
 
     for _ in 0..jobs_count {
-        oxanus::enqueue(&redis, &queue, WorkerNoop { sleep_ms }).await?;
+        oxanus::enqueue(&redis, QueueOne, WorkerNoop { sleep_ms }).await?;
     }
 
     Ok(pool)
@@ -124,12 +145,11 @@ async fn execute(
     concurrency: usize,
     jobs_count: u64,
 ) -> Result<(), oxanus::OxanusError> {
-    let queue = oxanus::QueueStatic::new("one");
     let redis = redis::aio::ConnectionManager::new(
         redis::Client::open(std::env::var("REDIS_URL").expect("REDIS_URL is not set")).unwrap(),
     )
     .await?;
-    let config = build_config(queue.clone(), concurrency).exit_when_finished(jobs_count);
+    let config = build_config(concurrency).exit_when_finished(jobs_count);
     let data = oxanus::WorkerState::new(Connections { db: pool.clone() });
 
     let stats = oxanus::run(&redis, config, data).await?;
@@ -141,17 +161,9 @@ async fn execute(
     Ok(())
 }
 
-fn build_config(
-    queue: oxanus::QueueStatic,
-    concurrency: usize,
-) -> oxanus::Config<Connections, ServiceError> {
+fn build_config(concurrency: usize) -> oxanus::Config<Connections, ServiceError> {
     oxanus::Config::new()
-        .register_processor(
-            oxanus::Processor::new()
-                .concurrency(concurrency)
-                .queue(&queue.name),
-        )
-        // .register_queue(queue)
+        .register_queue_with_concurrency::<QueueOne>(concurrency)
         .register_worker::<WorkerNoop>()
         .exit_when_idle()
 }

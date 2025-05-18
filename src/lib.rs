@@ -7,7 +7,7 @@ pub mod worker;
 pub mod worker_registry;
 pub mod worker_state;
 
-use processor::ProcessorQueue;
+// use processor::ProcessorQueue;
 use redis::AsyncCommands;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -16,8 +16,10 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 pub use crate::config::Config;
 pub use crate::error::OxanusError;
 pub use crate::job_envelope::JobEnvelope;
-pub use crate::processor::Processor;
-pub use crate::queue::{QueueDynamic, QueueStatic};
+// pub use crate::processor::Processor;
+pub use crate::queue::{
+    QueueConfig, QueueConfigKind, QueueConfigRetry, QueueConfigRetryBackoff, QueueConfigTrait,
+};
 pub use crate::worker::Worker;
 pub use crate::worker_registry::WorkerRegistry;
 pub use crate::worker_state::WorkerState;
@@ -52,14 +54,14 @@ pub async fn run<
     let mut joinset = tokio::task::JoinSet::new();
     let stats = Arc::new(Mutex::new(Stats::default()));
 
-    for processor in &config.processors {
+    for queue_config in &config.queues {
         joinset.spawn(run_queue_workers(
             // pgmq.clone(),
             redis.clone(),
             config.clone(),
             stats.clone(),
             data.clone(),
-            processor.clone(),
+            queue_config.clone(),
         ));
     }
 
@@ -95,7 +97,7 @@ pub async fn enqueue<
     ET: std::error::Error + Send + Sync + 'static,
 >(
     redis: &redis::aio::ConnectionManager,
-    queue: &QueueStatic,
+    queue: impl QueueConfigTrait,
     job: T,
 ) -> Result<i64, OxanusError>
 where
@@ -112,7 +114,7 @@ pub async fn enqueue_in<
     ET: std::error::Error + Send + Sync + 'static,
 >(
     redis: &redis::aio::ConnectionManager,
-    queue: &QueueStatic,
+    queue: impl QueueConfigTrait,
     job: T,
     delay: u64,
 ) -> Result<i64, OxanusError>
@@ -122,26 +124,27 @@ where
     ET: std::error::Error + Send + Sync + 'static,
 {
     let mut redis = redis.clone();
+    let queue_key = queue.key();
 
     // let pgmq = pgmq::PGMQueue::new_with_pool(pool.clone()).await;
-    let envelope = JobEnvelope::new(queue.name.clone(), job)?;
+    let envelope = JobEnvelope::new(queue_key.clone(), job)?;
     // let msg_id = pgmq
     //     .send_delay(queue.name(), &serde_json::to_value(&envelope)?, delay)
     //     .await?;
+
+    let envelope_str = serde_json::to_string(&envelope)?;
 
     if delay > 0 {
         let now = chrono::Utc::now().timestamp_micros();
         let _: i32 = redis
             .zadd(
                 "oxanus:scheduled",
-                queue.name.clone(),
+                envelope_str,
                 now + 1_000_000 * delay as i64,
             )
             .await?;
     } else {
-        let _: i32 = redis
-            .rpush(queue.name.clone(), serde_json::to_string(&envelope)?)
-            .await?;
+        let _: i32 = redis.rpush(queue_key, envelope_str).await?;
     }
 
     Ok(0)
@@ -149,22 +152,22 @@ where
 
 async fn redis_listener(
     redis: redis::aio::ConnectionManager,
-    queues: Vec<ProcessorQueue>,
+    queue_config: QueueConfig,
     job_tx: mpsc::Sender<WorkerEvent>,
     worker_capacity: Arc<Semaphore>,
 ) {
     let mut all_queues = Vec::new();
     let mut redis = redis.clone();
 
-    for queue in queues {
-        match queue {
-            ProcessorQueue::Queue(queue) => all_queues.push(queue),
-            ProcessorQueue::Pattern(pattern) => {
-                let queues: Vec<String> = redis.keys(pattern).await.unwrap();
-                all_queues.extend(queues);
-            }
+    match queue_config.kind {
+        QueueConfigKind::Static { key } => all_queues.push(key),
+        QueueConfigKind::Dynamic { prefix } => {
+            let queues: Vec<String> = redis.keys(format!("{}*", prefix)).await.unwrap();
+            all_queues.extend(queues);
         }
     }
+
+    dbg!(&all_queues);
 
     // dbg!(&all_queues);
 
@@ -174,7 +177,17 @@ async fn redis_listener(
     // }
 
     loop {
+        if all_queues.is_empty() {
+            // there should be another process that will update queues
+            println!("No queues found, sleeping for 1 second");
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            continue;
+        }
+
+        println!("Acquiring permit on queues: {:?}", &all_queues);
         let permit = worker_capacity.clone().acquire_owned().await.unwrap();
+        println!("Acquired permit on queues: {:?}", &all_queues);
+        println!("blpop {:?}", &all_queues);
         let msg: redis::Value = redis
             .blpop(&all_queues, 10.0)
             .await
@@ -184,22 +197,29 @@ async fn redis_listener(
             redis::FromRedisValue::from_redis_value(&msg).expect("Failed to parse job");
 
         let (_q, msg) = match value {
-            Some(value) => value,
+            Some(value) => {
+                println!("Read job from queues: {:?}", &all_queues);
+                value
+            }
             None => {
+                println!("No job found on queues: {:?}", &all_queues);
                 continue;
             }
         };
 
         match serde_json::from_str(&msg) {
             Ok(msg) => {
+                let job = WorkerEvent::Job {
+                    queue: _q,
+                    job: msg,
+                    permit,
+                };
+                dbg!(&job);
+                println!("Sending job to worker");
                 job_tx
-                    .send(WorkerEvent::Job {
-                        queue: _q,
-                        job: msg,
-                        permit,
-                    })
+                    .send(job)
                     .await
-                    .unwrap();
+                    .expect("Failed to send job to worker");
             }
             Err(e) => {
                 println!("Failed to parse job: {}", e);
@@ -208,40 +228,40 @@ async fn redis_listener(
     }
 }
 
-async fn redis_listener_worker(
-    redis: redis::aio::ConnectionManager,
-    queue: String,
-    job_tx: mpsc::Sender<serde_json::Value>,
-) {
-    tracing::info!("Redis listener worker started for queue: {}", queue);
-    let mut redis = redis.clone();
-    loop {
-        let msg: redis::Value = redis
-            .blpop(&queue, 10.0)
-            .await
-            .expect("Failed to read job from queue");
+// async fn redis_listener_worker(
+//     redis: redis::aio::ConnectionManager,
+//     queue: String,
+//     job_tx: mpsc::Sender<serde_json::Value>,
+// ) {
+//     tracing::info!("Redis listener worker started for queue: {}", queue);
+//     let mut redis = redis.clone();
+//     loop {
+//         let msg: redis::Value = redis
+//             .blpop(&queue, 10.0)
+//             .await
+//             .expect("Failed to read job from queue");
 
-        dbg!(&msg);
-        let value: Option<(String, String)> =
-            redis::FromRedisValue::from_redis_value(&msg).expect("Failed to parse job");
+//         dbg!(&msg);
+//         let value: Option<(String, String)> =
+//             redis::FromRedisValue::from_redis_value(&msg).expect("Failed to parse job");
 
-        let (_q, msg) = match value {
-            Some(value) => value,
-            None => {
-                continue;
-            }
-        };
+//         let (_q, msg) = match value {
+//             Some(value) => value,
+//             None => {
+//                 continue;
+//             }
+//         };
 
-        match serde_json::from_str(&msg) {
-            Ok(msg) => {
-                job_tx.send(msg).await.unwrap();
-            }
-            Err(e) => {
-                println!("Failed to parse job: {}", e);
-            }
-        }
-    }
-}
+//         match serde_json::from_str(&msg) {
+//             Ok(msg) => {
+//                 job_tx.send(msg).await.unwrap();
+//             }
+//             Err(e) => {
+//                 println!("Failed to parse job: {}", e);
+//             }
+//         }
+//     }
+// }
 
 pub async fn run_queue_workers<
     DT: Send + Sync + Clone + 'static,
@@ -252,9 +272,9 @@ pub async fn run_queue_workers<
     config: Arc<Config<DT, ET>>,
     stats: Arc<Mutex<Stats>>,
     data: WorkerState<DT>,
-    processor: Processor,
+    queue_config: QueueConfig,
 ) -> Result<(), OxanusError> {
-    let concurrency = processor.concurrency;
+    let concurrency = queue_config.concurrency;
     let (result_tx, result_rx) = mpsc::channel::<Result<(), ET>>(concurrency);
     let (job_tx, mut job_rx) = mpsc::channel::<WorkerEvent>(concurrency);
     let worker_capacity = Arc::new(Semaphore::new(concurrency));
@@ -267,13 +287,14 @@ pub async fn run_queue_workers<
     ));
     tokio::spawn(redis_listener(
         redis.clone(),
-        processor.queues.clone(),
+        queue_config.clone(),
         job_tx.clone(),
         worker_capacity.clone(),
     ));
 
     loop {
-        let (queue, job_value, permit) = match job_rx.recv().await {
+        println!("Waiting for job");
+        let (_queue, job_value, permit) = match job_rx.recv().await {
             Some(job) => match job {
                 WorkerEvent::Job { queue, job, permit } => (queue, job, permit),
                 WorkerEvent::Exit => {
@@ -284,6 +305,7 @@ pub async fn run_queue_workers<
                 continue;
             }
         };
+        println!("Received job");
 
         let envelope: JobEnvelope = match serde_json::from_value(job_value) {
             Ok(envelope) => envelope,
@@ -329,6 +351,7 @@ pub async fn run_queue_workers<
 
 pub type BoxedWorker<DT, ET> = Box<dyn Worker<Data = DT, Error = ET>>;
 
+#[derive(Debug)]
 enum WorkerEvent {
     Job {
         queue: String,
@@ -409,7 +432,7 @@ async fn collect_results<
                 Err(_e) => stats.failed += 1,
             }
 
-            // dbg!(&stats);
+            dbg!(&stats);
             stats.processed
         } else {
             0
