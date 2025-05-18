@@ -13,6 +13,6 @@ psql -c "CREATE DATABASE oxanus;"
 ```
 
 ```bash
-cargo run --example foo
+RUST_LOG=debug cargo run --example foo
 ```
 
