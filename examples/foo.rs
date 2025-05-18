@@ -129,8 +129,6 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
         .register_queue::<QueueTwo>()
         .register_worker::<Worker1>()
         .register_worker::<Worker2>();
-    // .exit_when_idle()
-    // .exit_when_finished(2);
 
     oxanus::enqueue(
         &redis,

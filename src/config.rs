@@ -5,7 +5,6 @@ use crate::worker_registry::WorkerRegistry;
 pub struct Config<DT, ET> {
     pub registry: WorkerRegistry<DT, ET>,
     pub queues: Vec<QueueConfig>,
-    pub exit_when_idle: bool,
     pub exit_when_finished: Option<u64>,
 }
 
@@ -14,7 +13,6 @@ impl<DT, ET> Config<DT, ET> {
         Self {
             registry: WorkerRegistry::new(),
             queues: Vec::new(),
-            exit_when_idle: false,
             exit_when_finished: None,
         }
     }
@@ -42,11 +40,6 @@ impl<DT, ET> Config<DT, ET> {
         T: Worker<Data = DT, Error = ET> + serde::de::DeserializeOwned + 'static,
     {
         self.registry.register::<T>();
-        self
-    }
-
-    pub fn exit_when_idle(mut self) -> Self {
-        self.exit_when_idle = true;
         self
     }
 

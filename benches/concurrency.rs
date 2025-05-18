@@ -158,5 +158,4 @@ fn build_config(concurrency: usize) -> oxanus::Config<Connections, ServiceError>
     oxanus::Config::new()
         .register_queue_with_concurrency::<QueueOne>(concurrency)
         .register_worker::<WorkerNoop>()
-        .exit_when_idle()
 }
