@@ -154,6 +154,23 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
         Worker2 { id: 4, foo: 44 },
     )
     .await?;
+    oxanus::enqueue_in(
+        &redis_manager,
+        QueueOne,
+        Worker1 {
+            id: 4,
+            payload: "test".to_string(),
+        },
+        3,
+    )
+    .await?;
+    oxanus::enqueue_in(
+        &redis_manager,
+        QueueTwo(Animal::Bird, 7),
+        Worker2 { id: 5, foo: 44 },
+        6,
+    )
+    .await?;
 
     let client = redis::Client::open(redis_url).expect("Failed to open Redis client");
     let stats = oxanus::run(&client, config, data).await?;

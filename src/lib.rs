@@ -1,8 +1,13 @@
+mod cemetery;
 pub mod config;
 pub mod error;
 pub mod job_envelope;
 pub mod queue;
+mod redis_helper;
+mod retrying;
+mod scheduling;
 mod semaphores_map;
+mod timed_migrator;
 pub mod worker;
 mod worker_event;
 mod worker_registry;
@@ -23,10 +28,6 @@ pub use crate::worker::Worker;
 use crate::worker_event::WorkerEvent;
 pub use crate::worker_state::WorkerState;
 
-const DEAD_QUEUE: &str = "oxanus:dead";
-const RETRIES_QUEUE: &str = "oxanus:retries";
-const SCHEDULED_QUEUE: &str = "oxanus:scheduled";
-
 #[derive(Default, Debug)]
 pub struct Stats {
     pub processed: u64,
@@ -45,6 +46,9 @@ pub async fn run<
     let config = Arc::new(config);
     let mut joinset = tokio::task::JoinSet::new();
     let stats = Arc::new(Mutex::new(Stats::default()));
+
+    tokio::spawn(scheduling::run(redis_client.clone()));
+    tokio::spawn(retrying::run(redis_client.clone()));
 
     for queue_config in &config.queues {
         joinset.spawn(run_queue_workers(
@@ -102,18 +106,10 @@ where
 
     let envelope = JobEnvelope::new(queue_key.clone(), job)?;
 
-    let envelope_str = serde_json::to_string(&envelope)?;
-
     if delay > 0 {
-        let now = chrono::Utc::now().timestamp_micros();
-        let _: i32 = redis
-            .zadd(
-                SCHEDULED_QUEUE,
-                envelope_str,
-                now + 1_000_000 * delay as i64,
-            )
-            .await?;
+        scheduling::enqueue_in(&redis, envelope, delay).await?;
     } else {
+        let envelope_str = serde_json::to_string(&envelope)?;
         let _: i32 = redis.rpush(queue_key, envelope_str).await?;
     }
 
@@ -296,7 +292,6 @@ async fn run_worker<DT: Send + Sync + Clone + 'static, ET: std::error::Error + S
 ) -> Result<(), ET> {
     tracing::info!("Queue: {} - Worker started", queue);
 
-    let mut redis = redis.clone();
     let result = job.process(&data).await;
     let is_err = result.is_err();
     let max_retries = job.max_retries();
@@ -305,31 +300,15 @@ async fn run_worker<DT: Send + Sync + Clone + 'static, ET: std::error::Error + S
     if is_err {
         if envelope.meta.retries < max_retries {
             let updated_envelope = envelope.with_retries_incremented();
-            let updated_envelope_str =
-                serde_json::to_string(&updated_envelope).expect("Failed to serialize job");
-            let _: i32 = redis
-                .rpush(&queue, updated_envelope_str.clone())
-                .await
-                .expect("Failed to send job to queue");
 
-            let now = chrono::Utc::now().timestamp_micros();
-            let _: Option<i64> = redis
-                .zadd(
-                    RETRIES_QUEUE,
-                    updated_envelope_str,
-                    now + 1_000_000 * retry_delay as i64,
-                )
+            retrying::retry_in(&redis, updated_envelope, retry_delay)
                 .await
-                .expect("Failed to send job to queue");
+                .expect("Failed to retry job");
         } else {
-            let envelope_str = serde_json::to_string(&envelope).expect("Failed to serialize job");
-            let (_, _): (i32, ()) = redis::pipe()
-                .lpush(DEAD_QUEUE, envelope_str)
-                .ltrim(DEAD_QUEUE, 0, 1000)
-                .query_async(&mut redis)
-                .await
-                .expect("Failed to send job to queue");
             tracing::error!("Job {} failed after {} retries", envelope.uuid, max_retries);
+            cemetery::add(&redis, envelope)
+                .await
+                .expect("Failed to add job to cemetery");
         }
     }
 

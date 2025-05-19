@@ -1,6 +1,5 @@
-use std::any::type_name;
-
 use serde::{Deserialize, Serialize};
+use std::any::type_name;
 use uuid::Uuid;
 
 use crate::{OxanusError, Worker};
@@ -12,13 +11,13 @@ pub struct JobEnvelope {
     pub queue: String,
     pub job: String,
     pub args: serde_json::Value,
-    #[serde(default)]
     pub meta: JobEnvelopeMeta,
 }
 
-#[derive(Debug, Deserialize, Serialize, Default)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct JobEnvelopeMeta {
     pub retries: u32,
+    pub created_at: i64,
 }
 
 impl JobEnvelope {
@@ -33,7 +32,10 @@ impl JobEnvelope {
             queue,
             job: type_name::<T>().to_string(),
             args: serde_json::to_value(&job)?,
-            meta: JobEnvelopeMeta::default(),
+            meta: JobEnvelopeMeta {
+                retries: 0,
+                created_at: chrono::Utc::now().timestamp_micros(),
+            },
         })
     }
 
@@ -45,6 +47,7 @@ impl JobEnvelope {
             args: self.args,
             meta: JobEnvelopeMeta {
                 retries: self.meta.retries + 1,
+                created_at: self.meta.created_at,
             },
         }
     }
