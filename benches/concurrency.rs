@@ -110,13 +110,13 @@ fn run_1000_jobs_taking_10_ms(bencher: divan::Bencher, n: usize) {
 }
 
 async fn setup(jobs_count: u64, sleep_ms: u64) -> Result<(), oxanus::OxanusError> {
-    let redis = redis::aio::ConnectionManager::new(
+    let redis_manager = redis::aio::ConnectionManager::new(
         redis::Client::open(std::env::var("REDIS_URL").expect("REDIS_URL is not set")).unwrap(),
     )
     .await?;
 
     for _ in 0..jobs_count {
-        oxanus::enqueue(&redis, QueueOne, WorkerNoop { sleep_ms }).await?;
+        oxanus::enqueue(&redis_manager, QueueOne, WorkerNoop { sleep_ms }).await?;
     }
 
     Ok(())

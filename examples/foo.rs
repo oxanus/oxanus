@@ -26,7 +26,7 @@ impl oxanus::Worker for Worker1 {
         oxanus::WorkerState(_conns): &oxanus::WorkerState<WorkerState>,
     ) -> Result<(), WorkerError> {
         tracing::info!("Job 1 {} started", self.id);
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
         tracing::info!("Job 1 {} done: {}", self.id, self.payload);
         Ok(())
     }
@@ -114,8 +114,8 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
         .init();
 
     let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL is not set");
-    let client = redis::Client::open(redis_url.clone()).expect("Failed to open Redis client");
-    let redis = redis::aio::ConnectionManager::new(client).await?;
+    let redis_client = redis::Client::open(redis_url.clone()).expect("Failed to open Redis client");
+    let redis_manager = redis::aio::ConnectionManager::new(redis_client).await?;
     let data = oxanus::WorkerState::new(WorkerState {});
 
     let config = oxanus::Config::new()
@@ -125,7 +125,7 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
         .register_worker::<Worker2>();
 
     oxanus::enqueue(
-        &redis,
+        &redis_manager,
         QueueOne,
         Worker1 {
             id: 1,
@@ -133,9 +133,14 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
         },
     )
     .await?;
-    oxanus::enqueue(&redis, QueueTwo(Animal::Dog, 1), Worker2 { id: 2, foo: 42 }).await?;
     oxanus::enqueue(
-        &redis,
+        &redis_manager,
+        QueueTwo(Animal::Dog, 1),
+        Worker2 { id: 2, foo: 42 },
+    )
+    .await?;
+    oxanus::enqueue(
+        &redis_manager,
         QueueOne,
         Worker1 {
             id: 3,
@@ -143,7 +148,12 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
         },
     )
     .await?;
-    oxanus::enqueue(&redis, QueueTwo(Animal::Cat, 2), Worker2 { id: 4, foo: 44 }).await?;
+    oxanus::enqueue(
+        &redis_manager,
+        QueueTwo(Animal::Cat, 2),
+        Worker2 { id: 4, foo: 44 },
+    )
+    .await?;
 
     let client = redis::Client::open(redis_url).expect("Failed to open Redis client");
     let stats = oxanus::run(&client, config, data).await?;

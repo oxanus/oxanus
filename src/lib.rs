@@ -9,6 +9,7 @@ mod worker_registry;
 pub mod worker_state;
 
 use redis::AsyncCommands;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 
@@ -37,7 +38,7 @@ pub async fn run<
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 >(
-    redis: &redis::Client,
+    redis_client: &redis::Client,
     config: Config<DT, ET>,
     data: WorkerState<DT>,
 ) -> Result<Stats, OxanusError> {
@@ -46,9 +47,8 @@ pub async fn run<
     let stats = Arc::new(Mutex::new(Stats::default()));
 
     for queue_config in &config.queues {
-        let redis = redis::aio::ConnectionManager::new(redis.clone()).await?;
         joinset.spawn(run_queue_workers(
-            redis.clone(),
+            redis_client.clone(),
             config.clone(),
             stats.clone(),
             data.clone(),
@@ -121,44 +121,61 @@ where
 }
 
 async fn run_redis_listeners(
-    redis: redis::aio::ConnectionManager,
+    redis_client: redis::Client,
     queue_config: QueueConfig,
     job_tx: mpsc::Sender<WorkerEvent>,
     semaphores: Arc<SemaphoresMap>,
 ) {
-    let mut all_queues = Vec::new();
-    let mut redis = redis.clone();
+    let mut tracked_queues = HashSet::new();
 
-    match queue_config.kind {
-        QueueKind::Static { key } => all_queues.push(key),
-        QueueKind::Dynamic { prefix } => {
-            let queues: Vec<String> = redis.keys(format!("{}*", prefix)).await.unwrap();
-            all_queues.extend(queues);
+    let mut redis_manager = redis::aio::ConnectionManager::new(redis_client.clone())
+        .await
+        .unwrap();
+
+    loop {
+        let all_queues: HashSet<String> = match &queue_config.kind {
+            QueueKind::Static { key } => HashSet::from([key.clone()]),
+            QueueKind::Dynamic { prefix } => {
+                redis_manager.keys(format!("{}*", prefix)).await.unwrap()
+            }
+        };
+        let new_queues: HashSet<String> = all_queues.difference(&tracked_queues).cloned().collect();
+
+        for queue in new_queues {
+            tracing::info!("Tracking queue: {}", queue);
+
+            tokio::spawn(redis_listener(
+                redis_client.clone(),
+                queue.clone(),
+                job_tx.clone(),
+                semaphores.clone(),
+            ));
+
+            tracked_queues.insert(queue);
         }
-    }
 
-    for queue in all_queues {
-        tokio::spawn(redis_listener(
-            redis.clone(),
-            queue,
-            job_tx.clone(),
-            semaphores.clone(),
-        ));
+        if queue_config.kind.is_dynamic() {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        } else {
+            break;
+        }
     }
 }
 
 async fn redis_listener(
-    redis: redis::aio::ConnectionManager,
+    redis_client: redis::Client,
     queue: String,
     job_tx: mpsc::Sender<WorkerEvent>,
     semaphores: Arc<SemaphoresMap>,
 ) {
-    let mut redis = redis.clone();
+    let mut redis_manager = redis::aio::ConnectionManager::new(redis_client.clone())
+        .await
+        .unwrap();
 
     loop {
         let semaphore = semaphores.get_or_create(queue.clone()).await;
         let permit = semaphore.acquire_owned().await.unwrap();
-        let msg: redis::Value = redis
+        let msg: redis::Value = redis_manager
             .blpop(&queue, 10.0)
             .await
             .expect("Failed to read job from queue");
@@ -196,7 +213,7 @@ pub async fn run_queue_workers<
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 >(
-    redis: redis::aio::ConnectionManager,
+    redis_client: redis::Client,
     config: Arc<Config<DT, ET>>,
     stats: Arc<Mutex<Stats>>,
     data: WorkerState<DT>,
@@ -213,13 +230,16 @@ pub async fn run_queue_workers<
         job_tx.clone(),
         stats.clone(),
     ));
-    run_redis_listeners(
-        redis.clone(),
+    tokio::spawn(run_redis_listeners(
+        redis_client.clone(),
         queue_config.clone(),
         job_tx.clone(),
         semaphores.clone(),
-    )
-    .await;
+    ));
+
+    let redis_manager = redis::aio::ConnectionManager::new(redis_client.clone())
+        .await
+        .unwrap();
 
     loop {
         let (queue, job_value, permit) = match job_rx.recv().await {
@@ -253,10 +273,10 @@ pub async fn run_queue_workers<
         tokio::spawn({
             let data = data.clone();
             let result_tx = result_tx.clone();
-            let redis = redis.clone();
+            let redis_manager = redis_manager.clone();
             async move {
                 let data = data.clone();
-                let result = run_worker(redis.clone(), queue, job, envelope, data).await;
+                let result = run_worker(redis_manager.clone(), queue, job, envelope, data).await;
                 drop(permit);
                 result_tx
                     .send(result)
