@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::Mutex;
-use tokio::sync::Semaphore;
+use tokio::sync::{Mutex, Semaphore};
 
 pub struct SemaphoresMap {
     permits: usize,
@@ -17,7 +16,7 @@ impl SemaphoresMap {
     }
 
     pub async fn get_or_create(&self, key: String) -> Arc<Semaphore> {
-        let mut map = self.inner.lock().expect("Failed to lock semaphore map");
+        let mut map = self.inner.lock().await;
         Arc::clone(
             map.entry(key)
                 .or_insert_with(|| Arc::new(Semaphore::new(self.permits))),

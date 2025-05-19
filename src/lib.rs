@@ -10,8 +10,7 @@ pub mod worker_state;
 
 use redis::AsyncCommands;
 use std::sync::Arc;
-use std::sync::Mutex;
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, mpsc};
 
 pub use crate::config::Config;
 pub use crate::error::OxanusError;
@@ -61,8 +60,7 @@ pub async fn run<
 
     let stats = Arc::try_unwrap(stats)
         .expect("Failed to unwrap Arc - there are still references to stats")
-        .into_inner()
-        .expect("Failed to unwrap Mutex - it was poisoned");
+        .into_inner();
 
     Ok(stats)
 }
@@ -328,7 +326,8 @@ async fn collect_results<
     stats: Arc<Mutex<Stats>>,
 ) {
     while let Some(result) = rx.recv().await {
-        let processed = if let Ok(mut stats) = stats.lock() {
+        let processed = {
+            let mut stats = stats.lock().await;
             stats.processed += 1;
             match result {
                 Ok(_) => stats.succeeded += 1,
@@ -336,8 +335,6 @@ async fn collect_results<
             }
 
             stats.processed
-        } else {
-            0
         };
 
         if let Some(exit_when_finished) = config.exit_when_finished {
