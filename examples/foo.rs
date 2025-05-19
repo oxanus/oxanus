@@ -1,5 +1,5 @@
-use oxanus::Queue;
 use serde::{Deserialize, Serialize};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Worker1 {
@@ -8,29 +8,26 @@ pub struct Worker1 {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum ServiceError {
+pub enum WorkerError {
     #[error("Generic error: {0}")]
     GenericError(String),
 }
 
 #[derive(Debug, Clone)]
-pub struct Connections {
-    pub db: sqlx::postgres::PgPool,
-}
+pub struct WorkerState {}
 
 #[async_trait::async_trait]
 impl oxanus::Worker for Worker1 {
-    type Data = Connections;
-    type Error = ServiceError;
+    type Data = WorkerState;
+    type Error = WorkerError;
 
     async fn process(
         &self,
-        oxanus::WorkerState(_conns): &oxanus::WorkerState<Connections>,
-    ) -> Result<(), ServiceError> {
+        oxanus::WorkerState(_conns): &oxanus::WorkerState<WorkerState>,
+    ) -> Result<(), WorkerError> {
         tracing::info!("Job 1 {} started", self.id);
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
         tracing::info!("Job 1 {} done: {}", self.id, self.payload);
-        // Err(ServiceError::server_error("test"))
         Ok(())
     }
 }
@@ -43,13 +40,13 @@ pub struct Worker2 {
 
 #[async_trait::async_trait]
 impl oxanus::Worker for Worker2 {
-    type Data = Connections;
-    type Error = ServiceError;
+    type Data = WorkerState;
+    type Error = WorkerError;
 
     async fn process(
         &self,
-        oxanus::WorkerState(_conns): &oxanus::WorkerState<Connections>,
-    ) -> Result<(), ServiceError> {
+        oxanus::WorkerState(_conns): &oxanus::WorkerState<WorkerState>,
+    ) -> Result<(), WorkerError> {
         tracing::info!("Job 2 {} started", self.id);
         tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
         tracing::info!("Job 2 {} done: {}", self.id, self.foo);
@@ -57,45 +54,109 @@ impl oxanus::Worker for Worker2 {
     }
 }
 
+pub struct QueueOne;
+
+pub struct QueueTwo(Animal, i32);
+
+#[derive(Debug)]
+pub enum Animal {
+    Dog,
+    Cat,
+    Bird,
+}
+
+impl oxanus::Queue for QueueOne {
+    fn key(&self) -> String {
+        "one".to_string()
+    }
+
+    fn to_config() -> oxanus::QueueConfig {
+        oxanus::QueueConfig {
+            kind: oxanus::QueueKind::Static {
+                key: "one".to_string(),
+            },
+            concurrency: 1,
+            retry: oxanus::QueueRetry {
+                max_retries: 2,
+                delay: 3,
+                backoff: oxanus::QueueRetryBackoff::None,
+            },
+        }
+    }
+}
+
+impl oxanus::Queue for QueueTwo {
+    fn key(&self) -> String {
+        // probably use Display trait here or specific one
+        format!("two:{:?}:{:?}", self.0, self.1)
+    }
+
+    fn to_config() -> oxanus::QueueConfig {
+        oxanus::QueueConfig {
+            kind: oxanus::QueueKind::Dynamic {
+                prefix: "two".to_string(),
+            },
+            concurrency: 1,
+            retry: oxanus::QueueRetry {
+                max_retries: 2,
+                delay: 3,
+                backoff: oxanus::QueueRetryBackoff::Exponential { factor: 2.0 },
+            },
+        }
+    }
+}
+
 #[tokio::main]
 pub async fn main() -> Result<(), oxanus::OxanusError> {
-    let url =
-        std::env::var("PG_URL").unwrap_or_else(|_e| "postgresql://localhost/oxanus".to_string());
-    let pool = sqlx::postgres::PgPool::connect(&url).await?;
-    let data = oxanus::WorkerState::new(Connections { db: pool.clone() });
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
 
-    let queue_one = Queue::new("one", 1);
-    let queue_two = Queue::new("two", 1);
+    let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL is not set");
+    let redis_client = redis::Client::open(redis_url.clone()).expect("Failed to open Redis client");
+    let redis_manager = redis::aio::ConnectionManager::new(redis_client).await?;
+    let data = oxanus::WorkerState::new(WorkerState {});
 
     let config = oxanus::Config::new()
-        .register_queue(queue_one)
-        .register_queue(queue_two)
+        .register_queue::<QueueOne>()
+        .register_queue::<QueueTwo>()
         .register_worker::<Worker1>()
-        .register_worker::<Worker2>()
-        .exit_when_idle();
+        .register_worker::<Worker2>();
 
-    oxanus::setup(&pool, &config).await?;
     oxanus::enqueue(
-        &pool,
-        &queue_one,
+        &redis_manager,
+        QueueOne,
         Worker1 {
             id: 1,
             payload: "test".to_string(),
         },
     )
     .await?;
-    oxanus::enqueue(&pool, &queue_two, Worker2 { id: 2, foo: 42 }).await?;
     oxanus::enqueue(
-        &pool,
-        &queue_one,
+        &redis_manager,
+        QueueTwo(Animal::Dog, 1),
+        Worker2 { id: 2, foo: 42 },
+    )
+    .await?;
+    oxanus::enqueue(
+        &redis_manager,
+        QueueOne,
         Worker1 {
             id: 3,
             payload: "test".to_string(),
         },
     )
     .await?;
-    oxanus::enqueue(&pool, &&queue_two, Worker2 { id: 4, foo: 44 }).await?;
-    let stats = oxanus::run(&pool, config, data).await?;
+    oxanus::enqueue(
+        &redis_manager,
+        QueueTwo(Animal::Cat, 2),
+        Worker2 { id: 4, foo: 44 },
+    )
+    .await?;
+
+    let client = redis::Client::open(redis_url).expect("Failed to open Redis client");
+    let stats = oxanus::run(&client, config, data).await?;
 
     println!("Stats: {:?}", stats);
 

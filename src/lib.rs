@@ -1,57 +1,31 @@
+pub mod config;
 pub mod error;
 pub mod job_envelope;
 pub mod queue;
+mod semaphores_map;
 pub mod worker;
-pub mod worker_registry;
+mod worker_event;
+mod worker_registry;
 pub mod worker_state;
 
-use queue::QueueConfig;
-use sqlx::{Pool, Postgres};
-use std::collections::HashMap;
+use redis::AsyncCommands;
+use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::sync::{Semaphore, mpsc};
-use std::sync::Mutex;
+use tokio::sync::{Mutex, mpsc};
 
+pub use crate::config::Config;
 pub use crate::error::OxanusError;
 pub use crate::job_envelope::JobEnvelope;
-pub use crate::queue::Queue;
+pub use crate::queue::{Queue, QueueConfig, QueueKind, QueueRetry, QueueRetryBackoff};
+use crate::semaphores_map::SemaphoresMap;
+use crate::worker::BoxedWorker;
 pub use crate::worker::Worker;
-pub use crate::worker_registry::WorkerRegistry;
+use crate::worker_event::WorkerEvent;
 pub use crate::worker_state::WorkerState;
 
-pub struct Config<DT, ET> {
-    registry: WorkerRegistry<DT, ET>,
-    queues: HashMap<String, Queue>,
-    exit_when_idle: bool,
-}
-
-impl<DT, ET> Config<DT, ET> {
-    pub fn new() -> Self {
-        Self {
-            registry: WorkerRegistry::new(),
-            queues: HashMap::new(),
-            exit_when_idle: false,
-        }
-    }
-
-    pub fn register_queue(mut self, queue: Queue) -> Self {
-        self.queues.insert(queue.name().to_string(), queue);
-        self
-    }
-
-    pub fn register_worker<T>(mut self) -> Self
-    where
-        T: Worker<Data = DT, Error = ET> + serde::de::DeserializeOwned + 'static,
-    {
-        self.registry.register::<T>();
-        self
-    }
-
-    pub fn exit_when_idle(mut self) -> Self {
-        self.exit_when_idle = true;
-        self
-    }
-}
+const DEAD_QUEUE: &str = "oxanus:dead";
+const RETRIES_QUEUE: &str = "oxanus:retries";
+const SCHEDULED_QUEUE: &str = "oxanus:scheduled";
 
 #[derive(Default, Debug)]
 pub struct Stats {
@@ -64,23 +38,21 @@ pub async fn run<
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 >(
-    pool: &Pool<Postgres>,
+    redis_client: &redis::Client,
     config: Config<DT, ET>,
     data: WorkerState<DT>,
 ) -> Result<Stats, OxanusError> {
-    let pgmq = pgmq::PGMQueue::new_with_pool(pool.clone()).await;
-    let queue_configs: Vec<QueueConfig> = config.queues.values().map(|q| q.config()).collect();
     let config = Arc::new(config);
     let mut joinset = tokio::task::JoinSet::new();
     let stats = Arc::new(Mutex::new(Stats::default()));
 
-    for queue_config in queue_configs {
+    for queue_config in &config.queues {
         joinset.spawn(run_queue_workers(
-            pgmq.clone(),
+            redis_client.clone(),
             config.clone(),
             stats.clone(),
             data.clone(),
-            queue_config,
+            queue_config.clone(),
         ));
     }
 
@@ -88,26 +60,9 @@ pub async fn run<
 
     let stats = Arc::try_unwrap(stats)
         .expect("Failed to unwrap Arc - there are still references to stats")
-        .into_inner()
-        .expect("Failed to unwrap Mutex - it was poisoned");
+        .into_inner();
 
     Ok(stats)
-}
-
-pub async fn setup<
-    DT: Send + Sync + Clone + 'static,
-    ET: std::error::Error + Send + Sync + 'static,
->(
-    pool: &Pool<Postgres>,
-    config: &Config<DT, ET>,
-) -> Result<(), OxanusError> {
-    let pgmq = pgmq::PGMQueue::new_with_pool(pool.clone()).await;
-
-    for queue in config.queues.values() {
-        pgmq.create(queue.name()).await.ok();
-    }
-
-    Ok(())
 }
 
 pub async fn enqueue<
@@ -115,8 +70,8 @@ pub async fn enqueue<
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 >(
-    pool: &Pool<Postgres>,
-    queue: &Queue,
+    redis: &redis::aio::ConnectionManager,
+    queue: impl Queue,
     job: T,
 ) -> Result<i64, OxanusError>
 where
@@ -124,7 +79,7 @@ where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
-    enqueue_in(pool, queue, job, 0).await
+    enqueue_in(redis, queue, job, 0).await
 }
 
 pub async fn enqueue_in<
@@ -132,8 +87,8 @@ pub async fn enqueue_in<
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 >(
-    pool: &Pool<Postgres>,
-    queue: &Queue,
+    redis: &redis::aio::ConnectionManager,
+    queue: impl Queue,
     job: T,
     delay: u64,
 ) -> Result<i64, OxanusError>
@@ -142,161 +97,269 @@ where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
-    let pgmq = pgmq::PGMQueue::new_with_pool(pool.clone()).await;
-    let envelope = JobEnvelope::new(job)?;
-    let msg_id = pgmq
-        .send_delay(queue.name(), &serde_json::to_value(&envelope)?, delay)
-        .await?;
+    let mut redis = redis.clone();
+    let queue_key = queue.key();
 
-    Ok(msg_id)
+    let envelope = JobEnvelope::new(queue_key.clone(), job)?;
+
+    let envelope_str = serde_json::to_string(&envelope)?;
+
+    if delay > 0 {
+        let now = chrono::Utc::now().timestamp_micros();
+        let _: i32 = redis
+            .zadd(
+                SCHEDULED_QUEUE,
+                envelope_str,
+                now + 1_000_000 * delay as i64,
+            )
+            .await?;
+    } else {
+        let _: i32 = redis.rpush(queue_key, envelope_str).await?;
+    }
+
+    Ok(0)
+}
+
+async fn run_redis_listeners(
+    redis_client: redis::Client,
+    queue_config: QueueConfig,
+    job_tx: mpsc::Sender<WorkerEvent>,
+    semaphores: Arc<SemaphoresMap>,
+) {
+    let mut tracked_queues = HashSet::new();
+
+    let mut redis_manager = redis::aio::ConnectionManager::new(redis_client.clone())
+        .await
+        .unwrap();
+
+    loop {
+        let all_queues: HashSet<String> = match &queue_config.kind {
+            QueueKind::Static { key } => HashSet::from([key.clone()]),
+            QueueKind::Dynamic { prefix } => {
+                redis_manager.keys(format!("{}*", prefix)).await.unwrap()
+            }
+        };
+        let new_queues: HashSet<String> = all_queues.difference(&tracked_queues).cloned().collect();
+
+        for queue in new_queues {
+            tracing::info!("Tracking queue: {}", queue);
+
+            tokio::spawn(redis_listener(
+                redis_client.clone(),
+                queue.clone(),
+                job_tx.clone(),
+                semaphores.clone(),
+            ));
+
+            tracked_queues.insert(queue);
+        }
+
+        if queue_config.kind.is_dynamic() {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        } else {
+            break;
+        }
+    }
+}
+
+async fn redis_listener(
+    redis_client: redis::Client,
+    queue: String,
+    job_tx: mpsc::Sender<WorkerEvent>,
+    semaphores: Arc<SemaphoresMap>,
+) {
+    let mut redis_manager = redis::aio::ConnectionManager::new(redis_client.clone())
+        .await
+        .unwrap();
+
+    loop {
+        let semaphore = semaphores.get_or_create(queue.clone()).await;
+        let permit = semaphore.acquire_owned().await.unwrap();
+        let msg: redis::Value = redis_manager
+            .blpop(&queue, 10.0)
+            .await
+            .expect("Failed to read job from queue");
+
+        let value: Option<(String, String)> =
+            redis::FromRedisValue::from_redis_value(&msg).expect("Failed to parse job");
+
+        let (_q, msg) = match value {
+            Some(value) => value,
+            None => {
+                continue;
+            }
+        };
+
+        match serde_json::from_str(&msg) {
+            Ok(msg) => {
+                let job = WorkerEvent::Job {
+                    queue: _q,
+                    job: msg,
+                    permit,
+                };
+                job_tx
+                    .send(job)
+                    .await
+                    .expect("Failed to send job to worker");
+            }
+            Err(e) => {
+                println!("Failed to parse job: {}", e);
+            }
+        }
+    }
 }
 
 pub async fn run_queue_workers<
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 >(
-    pgmq: pgmq::PGMQueue,
+    redis_client: redis::Client,
     config: Arc<Config<DT, ET>>,
     stats: Arc<Mutex<Stats>>,
     data: WorkerState<DT>,
     queue_config: QueueConfig,
 ) -> Result<(), OxanusError> {
-    tracing::info!(
-        "Queue: {} (concurrency: {})",
-        queue_config.name,
-        queue_config.concurrency
-    );
-
-    pgmq.create(&queue_config.name).await.ok();
-
     let concurrency = queue_config.concurrency;
     let (result_tx, result_rx) = mpsc::channel::<Result<(), ET>>(concurrency);
-    let worker_capacity = Arc::new(Semaphore::new(concurrency));
+    let (job_tx, mut job_rx) = mpsc::channel::<WorkerEvent>(concurrency);
+    let semaphores = Arc::new(SemaphoresMap::new(concurrency));
 
-    tokio::spawn(collect_results(result_rx, stats.clone()));
+    tokio::spawn(collect_results(
+        result_rx,
+        config.clone(),
+        job_tx.clone(),
+        stats.clone(),
+    ));
+    tokio::spawn(run_redis_listeners(
+        redis_client.clone(),
+        queue_config.clone(),
+        job_tx.clone(),
+        semaphores.clone(),
+    ));
+
+    let redis_manager = redis::aio::ConnectionManager::new(redis_client.clone())
+        .await
+        .unwrap();
 
     loop {
-        let permit = worker_capacity.clone().acquire_owned().await.unwrap();
-        let msg: Option<pgmq::Message<serde_json::Value>> =
-            match pgmq.read(&queue_config.name, Some(30)).await {
-                Ok(msg) => msg,
-                Err(e) => {
-                    println!("Failed to read job from queue: {}", e);
-                    continue;
+        let (queue, job_value, permit) = match job_rx.recv().await {
+            Some(job) => match job {
+                WorkerEvent::Job { queue, job, permit } => (queue, job, permit),
+                WorkerEvent::Exit => {
+                    return Ok(());
                 }
-            };
-        if let Some(job_msg) = msg {
-            let envelope: JobEnvelope = match serde_json::from_value(job_msg.message) {
-                Ok(envelope) => envelope,
-                Err(e) => {
-                    if let Err(e) = pgmq.archive(&queue_config.name, job_msg.msg_id).await {
-                        println!("Failed to archive job {}: {}", job_msg.msg_id, e);
-                    }
-                    println!("Failed to parse job envelope: {}", e);
-                    continue;
-                }
-            };
-            tracing::debug!("Received envelope: {:?}", &envelope);
-            let job = match config.registry.build(&envelope.job, envelope.args.clone()) {
-                Ok(job) => job,
-                Err(e) => {
-                    println!("Invalid job: {} - {}", &envelope.job, e);
-                    if let Err(e) = pgmq.archive(&queue_config.name, job_msg.msg_id).await {
-                        println!("Failed to archive job {}: {}", job_msg.msg_id, e);
-                    }
-                    continue;
-                }
-            };
-
-            tokio::spawn({
-                let pgmq = pgmq.clone();
-                let queue = queue_config.name.clone();
-                let data = data.clone();
-                let result_tx = result_tx.clone();
-                async move {
-                    let data = data.clone();
-                    let result = run_worker(
-                        pgmq,
-                        queue,
-                        WorkerEvent::Job(job_msg.msg_id, job, envelope),
-                        data,
-                    )
-                    .await;
-                    result_tx
-                        .send(result)
-                        .await
-                        .unwrap_or_else(|e| println!("Failed to send result: {}", e));
-                    drop(permit);
-                }
-            });
-        } else {
-            drop(permit);
-            if config.exit_when_idle && worker_capacity.available_permits() == concurrency {
-                return Ok(());
+            },
+            None => {
+                continue;
             }
-            // println!("No job found, sleeping");
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        }
-    }
-}
+        };
 
-enum WorkerEvent<DT, ET> {
-    Job(i64, Box<dyn Worker<Data = DT, Error = ET>>, JobEnvelope),
+        let envelope: JobEnvelope = match serde_json::from_value(job_value) {
+            Ok(envelope) => envelope,
+            Err(e) => {
+                println!("Failed to parse job envelope: {}", e);
+                continue;
+            }
+        };
+        tracing::debug!("Received envelope: {:?}", &envelope);
+        let job = match config.registry.build(&envelope.job, envelope.args.clone()) {
+            Ok(job) => job,
+            Err(e) => {
+                println!("Invalid job: {} - {}", &envelope.job, e);
+                continue;
+            }
+        };
+
+        tokio::spawn({
+            let data = data.clone();
+            let result_tx = result_tx.clone();
+            let redis_manager = redis_manager.clone();
+            async move {
+                let data = data.clone();
+                let result = run_worker(redis_manager.clone(), queue, job, envelope, data).await;
+                drop(permit);
+                result_tx
+                    .send(result)
+                    .await
+                    .unwrap_or_else(|e| println!("Failed to send result: {}", e));
+            }
+        });
+    }
 }
 
 async fn run_worker<DT: Send + Sync + Clone + 'static, ET: std::error::Error + Send + Sync>(
-    pgmq: pgmq::PGMQueue,
+    redis: redis::aio::ConnectionManager,
     queue: String,
-    job: WorkerEvent<DT, ET>,
+    job: BoxedWorker<DT, ET>,
+    envelope: JobEnvelope,
     data: WorkerState<DT>,
 ) -> Result<(), ET> {
     tracing::info!("Queue: {} - Worker started", queue);
-    match job {
-        WorkerEvent::Job(msg_id, job, envelope) => {
-            let result = job.process(&data).await;
-            let is_err = result.is_err();
-            let max_retries = job.max_retries();
-            let retry_delay = job.retry_delay(envelope.meta.retries);
 
-            let can_archive = if is_err {
-                if envelope.meta.retries < max_retries {
-                    if let Err(e) = pgmq
-                        .send_delay(&queue, &envelope.with_retries_incremented(), retry_delay)
-                        .await
-                    {
-                        println!("Failed to send job to queue: {}", e);
-                        false
-                    } else {
-                        true
-                    }
-                } else {
-                    println!("Job {} failed after {} retries", msg_id, max_retries);
-                    true
-                }
-            } else {
-                true
-            };
+    let mut redis = redis.clone();
+    let result = job.process(&data).await;
+    let is_err = result.is_err();
+    let max_retries = job.max_retries();
+    let retry_delay = job.retry_delay(envelope.meta.retries);
 
-            if can_archive {
-                if let Err(e) = pgmq.archive(&queue, msg_id).await {
-                    println!("Failed to archive job {}: {}", msg_id, e);
-                }
-            }
-            return result;
+    if is_err {
+        if envelope.meta.retries < max_retries {
+            let updated_envelope = envelope.with_retries_incremented();
+            let updated_envelope_str =
+                serde_json::to_string(&updated_envelope).expect("Failed to serialize job");
+            let _: i32 = redis
+                .rpush(&queue, updated_envelope_str.clone())
+                .await
+                .expect("Failed to send job to queue");
+
+            let now = chrono::Utc::now().timestamp_micros();
+            let _: Option<i64> = redis
+                .zadd(
+                    RETRIES_QUEUE,
+                    updated_envelope_str,
+                    now + 1_000_000 * retry_delay as i64,
+                )
+                .await
+                .expect("Failed to send job to queue");
+        } else {
+            let envelope_str = serde_json::to_string(&envelope).expect("Failed to serialize job");
+            let (_, _): (i32, ()) = redis::pipe()
+                .lpush(DEAD_QUEUE, envelope_str)
+                .ltrim(DEAD_QUEUE, 0, 1000)
+                .query_async(&mut redis)
+                .await
+                .expect("Failed to send job to queue");
+            tracing::error!("Job {} failed after {} retries", envelope.uuid, max_retries);
         }
     }
+
+    result
 }
 
-async fn collect_results<ET: std::error::Error + Send + Sync>(
+async fn collect_results<
+    DT: Send + Sync + Clone + 'static,
+    ET: std::error::Error + Send + Sync + 'static,
+>(
     mut rx: mpsc::Receiver<Result<(), ET>>,
+    config: Arc<Config<DT, ET>>,
+    job_tx: mpsc::Sender<WorkerEvent>,
     stats: Arc<Mutex<Stats>>,
 ) {
     while let Some(result) = rx.recv().await {
-        if let Ok(mut stats) = stats.lock() {
+        let processed = {
+            let mut stats = stats.lock().await;
             stats.processed += 1;
             match result {
                 Ok(_) => stats.succeeded += 1,
                 Err(_e) => stats.failed += 1,
+            }
+
+            stats.processed
+        };
+
+        if let Some(exit_when_finished) = config.exit_when_finished {
+            if processed >= exit_when_finished {
+                job_tx.send(WorkerEvent::Exit).await.unwrap();
             }
         }
     }

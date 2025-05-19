@@ -1,31 +1,40 @@
-#[derive(Debug, Clone, Copy)]
-pub struct Queue {
-    name: &'static str,
-    concurrency: usize,
+pub trait Queue: Send + Sync {
+    fn key(&self) -> String;
+    fn to_config() -> QueueConfig;
 }
 
-impl Queue {
-    pub const fn new(name: &'static str, concurrency: usize) -> Self {
-        Self { name, concurrency }
-    }
-
-    pub const fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub const fn concurrency(&self) -> usize {
-        self.concurrency
-    }
-
-    pub fn config(&self) -> QueueConfig {
-        QueueConfig {
-            name: self.name().to_string(),
-            concurrency: self.concurrency(),
-        }
-    }
-}
-
+#[derive(Debug, Clone)]
 pub struct QueueConfig {
-    pub name: String,
+    pub kind: QueueKind,
     pub concurrency: usize,
+    pub retry: QueueRetry,
+}
+
+#[derive(Debug, Clone)]
+pub enum QueueKind {
+    Static { key: String },
+    Dynamic { prefix: String },
+}
+
+impl QueueKind {
+    pub fn is_dynamic(&self) -> bool {
+        matches!(self, QueueKind::Dynamic { .. })
+    }
+
+    pub fn is_static(&self) -> bool {
+        matches!(self, QueueKind::Static { .. })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct QueueRetry {
+    pub max_retries: usize,
+    pub delay: u64,
+    pub backoff: QueueRetryBackoff,
+}
+
+#[derive(Debug, Clone)]
+pub enum QueueRetryBackoff {
+    None,
+    Exponential { factor: f64 },
 }
