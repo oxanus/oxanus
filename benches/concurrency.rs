@@ -31,11 +31,7 @@ impl oxanus::Queue for QueueOne {
                 key: "one".to_string(),
             },
             concurrency: 1,
-            retry: oxanus::QueueRetry {
-                max_retries: 0,
-                delay: 0,
-                backoff: oxanus::QueueRetryBackoff::None,
-            },
+            throttle: oxanus::QueueThrottle::None,
         }
     }
 }

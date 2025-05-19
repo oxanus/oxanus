@@ -21,7 +21,9 @@ use tokio::sync::{Mutex, mpsc};
 pub use crate::config::Config;
 pub use crate::error::OxanusError;
 pub use crate::job_envelope::JobEnvelope;
-pub use crate::queue::{Queue, QueueConfig, QueueKind, QueueRetry, QueueRetryBackoff};
+pub use crate::queue::{
+    Queue, QueueConfig, QueueKind, QueueRetry, QueueRetryBackoff, QueueThrottle,
+};
 use crate::semaphores_map::SemaphoresMap;
 use crate::worker::BoxedWorker;
 pub use crate::worker::Worker;
