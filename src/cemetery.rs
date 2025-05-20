@@ -6,5 +6,6 @@ pub async fn add(
     redis: &redis::aio::ConnectionManager,
     envelope: JobEnvelope,
 ) -> Result<(), OxanusError> {
-    redis_helper::zadd_with_timestamp(redis, DEAD_QUEUE, envelope.meta.created_at, &envelope).await
+    redis_helper::zadd_with_timestamp(redis, DEAD_QUEUE, envelope.job.created_at, &envelope.job)
+        .await
 }

@@ -36,7 +36,7 @@ pub async fn run<DT: Send + Sync + Clone + 'static, ET: std::error::Error + Send
                 .await
                 .expect("Failed to retry job");
         } else {
-            tracing::error!("Job {} failed after {} retries", envelope.uuid, max_retries);
+            tracing::error!("Job {} failed after {} retries", envelope.id, max_retries);
             cemetery::add(&redis, envelope)
                 .await
                 .expect("Failed to add job to cemetery");

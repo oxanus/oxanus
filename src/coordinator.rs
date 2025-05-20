@@ -76,10 +76,13 @@ pub async fn run<
             }
         };
         tracing::debug!("Received envelope: {:?}", &envelope);
-        let job = match config.registry.build(&envelope.job, envelope.args.clone()) {
+        let job = match config
+            .registry
+            .build(&envelope.job.name, envelope.job.args.clone())
+        {
             Ok(job) => job,
             Err(e) => {
-                println!("Invalid job: {} - {}", &envelope.job, e);
+                println!("Invalid job: {} - {}", &envelope.job.name, e);
                 continue;
             }
         };
@@ -88,7 +91,7 @@ pub async fn run<
             let data = data.clone();
             let result_tx = result_tx.clone();
             let redis_manager = redis_manager.clone();
-            let job_name = envelope.job.clone();
+            let job_name = envelope.job.name.clone();
             async move {
                 let data = data.clone();
                 let result =

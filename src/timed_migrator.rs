@@ -27,7 +27,7 @@ pub async fn run(redis_client: redis::Client, queue: String) {
         for envelope in envelopes_str {
             let envelope: JobEnvelope = serde_json::from_str(&envelope).unwrap();
             envelopes
-                .entry(envelope.queue.clone())
+                .entry(envelope.job.queue.clone())
                 .or_insert(vec![])
                 .push(envelope);
         }

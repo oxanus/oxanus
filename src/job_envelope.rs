@@ -6,18 +6,22 @@ use crate::{OxanusError, Worker};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct JobEnvelope {
-    #[serde(default = "uuid::Uuid::new_v4")]
-    pub uuid: Uuid,
-    pub queue: String,
-    pub job: String,
-    pub args: serde_json::Value,
+    pub id: String,
+    pub job: Job,
     pub meta: JobEnvelopeMeta,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Job {
+    pub name: String,
+    pub queue: String,
+    pub args: serde_json::Value,
+    pub created_at: i64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct JobEnvelopeMeta {
     pub retries: u32,
-    pub created_at: i64,
 }
 
 impl JobEnvelope {
@@ -28,26 +32,23 @@ impl JobEnvelope {
         ET: std::error::Error + Send + Sync + 'static,
     {
         Ok(Self {
-            uuid: Uuid::new_v4(),
-            queue,
-            job: type_name::<T>().to_string(),
-            args: serde_json::to_value(&job)?,
-            meta: JobEnvelopeMeta {
-                retries: 0,
+            id: Uuid::new_v4().to_string(),
+            job: Job {
+                name: type_name::<T>().to_string(),
+                queue,
+                args: serde_json::to_value(&job)?,
                 created_at: chrono::Utc::now().timestamp_micros(),
             },
+            meta: JobEnvelopeMeta { retries: 0 },
         })
     }
 
     pub fn with_retries_incremented(self) -> Self {
         Self {
-            uuid: self.uuid,
-            queue: self.queue,
+            id: self.id,
             job: self.job,
-            args: self.args,
             meta: JobEnvelopeMeta {
                 retries: self.meta.retries + 1,
-                created_at: self.meta.created_at,
             },
         }
     }
