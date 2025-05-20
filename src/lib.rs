@@ -1,22 +1,27 @@
 mod cemetery;
-pub mod config;
-pub mod error;
-pub mod job_envelope;
-pub mod queue;
+mod config;
+mod error;
+mod job_envelope;
+mod queue;
 mod redis_helper;
 mod retrying;
 mod scheduling;
 mod semaphores_map;
+mod throttler;
 mod timed_migrator;
-pub mod worker;
+mod worker;
 mod worker_event;
 mod worker_registry;
-pub mod worker_state;
+mod worker_state;
 
 use redis::AsyncCommands;
 use std::collections::HashSet;
+use std::num::NonZero;
 use std::sync::Arc;
+use std::time::Duration;
+use throttler::Throttler;
 use tokio::sync::{Mutex, mpsc};
+use tokio::time::sleep;
 
 pub use crate::config::Config;
 pub use crate::error::OxanusError;
@@ -140,10 +145,15 @@ async fn run_redis_listeners(
         let new_queues: HashSet<String> = all_queues.difference(&tracked_queues).cloned().collect();
 
         for queue in new_queues {
-            tracing::info!("Tracking queue: {}", queue);
+            tracing::info!(
+                queue = queue,
+                config.throttle = format!("{:?}", queue_config.throttle),
+                "Tracking queue"
+            );
 
             tokio::spawn(redis_listener(
                 redis_client.clone(),
+                queue_config.clone(),
                 queue.clone(),
                 job_tx.clone(),
                 semaphores.clone(),
@@ -160,9 +170,65 @@ async fn run_redis_listeners(
     }
 }
 
+async fn pop_queue_message(
+    redis_manager: &mut redis::aio::ConnectionManager,
+    queue_config: &QueueConfig,
+    queue_key: &str,
+) -> Result<String, OxanusError> {
+    match &queue_config.throttle {
+        Some(throttle) => pop_queue_message_w_throttle(redis_manager, queue_key, throttle).await,
+        None => pop_queue_message_wo_throttle(redis_manager, queue_key).await,
+    }
+}
+
+async fn pop_queue_message_wo_throttle(
+    redis_manager: &mut redis::aio::ConnectionManager,
+    queue_key: &str,
+) -> Result<String, OxanusError> {
+    loop {
+        let msg: redis::Value = redis_manager.blpop(queue_key, 10.0).await?;
+        let value: Option<(String, String)> = redis::FromRedisValue::from_redis_value(&msg)?;
+
+        if let Some((_, msg)) = value {
+            return Ok(msg);
+        }
+    }
+}
+
+async fn pop_queue_message_w_throttle(
+    redis_manager: &mut redis::aio::ConnectionManager,
+    queue_key: &str,
+    throttle: &QueueThrottle,
+) -> Result<String, OxanusError> {
+    loop {
+        let throttler = Throttler::new(
+            redis_manager.clone(),
+            queue_key,
+            throttle.limit,
+            throttle.window_ms,
+        );
+
+        let state = throttler.state(redis_manager).await?;
+
+        if state.is_allowed {
+            let msg: redis::Value = redis_manager
+                .lpop(&queue_key, Some(NonZero::new(1).unwrap()))
+                .await?;
+            let value: Vec<String> = redis::FromRedisValue::from_redis_value(&msg)?;
+            if let Some(msg) = value.first() {
+                throttler.consume().await?;
+                return Ok(msg.clone());
+            }
+        }
+
+        sleep(Duration::from_millis(state.throttled_for.unwrap_or(100))).await;
+    }
+}
+
 async fn redis_listener(
     redis_client: redis::Client,
-    queue: String,
+    queue_config: QueueConfig,
+    queue_key: String,
     job_tx: mpsc::Sender<WorkerEvent>,
     semaphores: Arc<SemaphoresMap>,
 ) {
@@ -171,27 +237,17 @@ async fn redis_listener(
         .unwrap();
 
     loop {
-        let semaphore = semaphores.get_or_create(queue.clone()).await;
+        let semaphore = semaphores.get_or_create(queue_key.clone()).await;
         let permit = semaphore.acquire_owned().await.unwrap();
-        let msg: redis::Value = redis_manager
-            .blpop(&queue, 10.0)
+
+        let msg = pop_queue_message(&mut redis_manager, &queue_config, &queue_key)
             .await
-            .expect("Failed to read job from queue");
-
-        let value: Option<(String, String)> =
-            redis::FromRedisValue::from_redis_value(&msg).expect("Failed to parse job");
-
-        let (_q, msg) = match value {
-            Some(value) => value,
-            None => {
-                continue;
-            }
-        };
+            .expect("Failed to pop queue message");
 
         match serde_json::from_str(&msg) {
             Ok(msg) => {
                 let job = WorkerEvent::Job {
-                    queue: _q,
+                    queue: queue_key.clone(),
                     job: msg,
                     permit,
                 };
@@ -272,9 +328,11 @@ pub async fn run_queue_workers<
             let data = data.clone();
             let result_tx = result_tx.clone();
             let redis_manager = redis_manager.clone();
+            let job_name = envelope.job.clone();
             async move {
                 let data = data.clone();
-                let result = run_worker(redis_manager.clone(), queue, job, envelope, data).await;
+                let result =
+                    run_worker(redis_manager.clone(), queue, job_name, job, envelope, data).await;
                 drop(permit);
                 result_tx
                     .send(result)
@@ -288,14 +346,24 @@ pub async fn run_queue_workers<
 async fn run_worker<DT: Send + Sync + Clone + 'static, ET: std::error::Error + Send + Sync>(
     redis: redis::aio::ConnectionManager,
     queue: String,
+    job_name: String,
     job: BoxedWorker<DT, ET>,
     envelope: JobEnvelope,
     data: WorkerState<DT>,
 ) -> Result<(), ET> {
-    tracing::info!("Queue: {} - Worker started", queue);
-
+    tracing::info!(queue = queue, job = job_name, "Job started");
+    let start = std::time::Instant::now();
     let result = job.process(&data).await;
+    let duration = start.elapsed();
     let is_err = result.is_err();
+    tracing::info!(
+        queue = queue,
+        job = job_name,
+        success = !is_err,
+        duration = duration.as_millis(),
+        retries = envelope.meta.retries,
+        "Job finished"
+    );
     let max_retries = job.max_retries();
     let retry_delay = job.retry_delay(envelope.meta.retries);
 

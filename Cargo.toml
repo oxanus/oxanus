@@ -21,6 +21,7 @@ uuid = { version = "^1.16", features = ["serde", "v4"] }
 [dev-dependencies]
 testresult = "^0.4"
 divan = "^0.1"
+rand = "^0.9"
 tracing-subscriber = { version = "^0.3", features = ["env-filter"] }
 
 [[bench]]

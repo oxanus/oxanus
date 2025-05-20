@@ -12,4 +12,6 @@ pub enum OxanusError {
     TokioJoinError(#[from] tokio::task::JoinError),
     #[error("Redis error: {0}")]
     RedisError(#[from] redis::RedisError),
+    #[error("Try from int error: {0}")]
+    TryFromIntError(#[from] std::num::TryFromIntError),
 }

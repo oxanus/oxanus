@@ -31,7 +31,7 @@ impl oxanus::Queue for QueueOne {
                 key: "one".to_string(),
             },
             concurrency: 1,
-            throttle: oxanus::QueueThrottle::None,
+            throttle: None,
         }
     }
 }

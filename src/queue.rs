@@ -7,7 +7,7 @@ pub trait Queue: Send + Sync {
 pub struct QueueConfig {
     pub kind: QueueKind,
     pub concurrency: usize,
-    pub throttle: QueueThrottle,
+    pub throttle: Option<QueueThrottle>,
     // pub retry: QueueRetry,
 }
 
@@ -35,9 +35,9 @@ pub struct QueueRetry {
 }
 
 #[derive(Debug, Clone)]
-pub enum QueueThrottle {
-    None,
-    SlidingWindow { window: u64, limit: u64 },
+pub struct QueueThrottle {
+    pub window_ms: u64,
+    pub limit: u64,
 }
 
 #[derive(Debug, Clone)]
