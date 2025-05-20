@@ -73,7 +73,11 @@ pub async fn run<
         };
 
         let envelope: JobEnvelope = match storage::get(&redis_manager, &job_id).await {
-            Ok(envelope) => envelope,
+            Ok(Some(envelope)) => envelope,
+            Ok(None) => {
+                tracing::warn!("Job {} not found", job_id);
+                continue;
+            }
             Err(e) => {
                 println!("Failed to get job envelope: {}", e);
                 continue;

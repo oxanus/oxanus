@@ -2,10 +2,11 @@ use redis::AsyncCommands;
 
 use crate::{JobEnvelope, OxanusError};
 
-const JOBS_KEY: &str = "oxanus:jobs";
-const DEAD_QUEUE: &str = "oxanus:dead";
 pub const SCHEDULE_QUEUE: &str = "oxanus:schedule";
 pub const RETRY_QUEUE: &str = "oxanus:retry";
+const JOBS_KEY: &str = "oxanus:jobs";
+const DEAD_QUEUE: &str = "oxanus:dead";
+const JOB_EXPIRE_TIME: i64 = 7 * 24 * 3600; // 7 days
 
 pub async fn enqueue(
     redis: &redis::aio::ConnectionManager,
@@ -20,6 +21,12 @@ pub async fn enqueue(
 
     let (_, _): ((), i32) = redis::pipe()
         .hset(JOBS_KEY, &envelope.id, serde_json::to_string(envelope)?)
+        .hexpire(
+            JOBS_KEY,
+            JOB_EXPIRE_TIME,
+            redis::ExpireOption::NONE,
+            &envelope.id,
+        )
         .rpush(&envelope.job.queue, &envelope.id)
         .query_async(&mut redis)
         .await?;
@@ -53,6 +60,12 @@ pub async fn enqueue_in(
 
     let (_, _): ((), ()) = redis::pipe()
         .hset(JOBS_KEY, &envelope.id, serde_json::to_string(&envelope)?)
+        .hexpire(
+            JOBS_KEY,
+            JOB_EXPIRE_TIME,
+            redis::ExpireOption::NONE,
+            &envelope.id,
+        )
         .zadd(
             SCHEDULE_QUEUE,
             &envelope.id,
@@ -76,6 +89,12 @@ pub async fn retry_in(
             &updated_envelope.id,
             serde_json::to_string(&updated_envelope)?,
         )
+        .hexpire(
+            JOBS_KEY,
+            JOB_EXPIRE_TIME,
+            redis::ExpireOption::NONE,
+            &updated_envelope.id,
+        )
         .zadd(
             RETRY_QUEUE,
             updated_envelope.id,
@@ -89,10 +108,13 @@ pub async fn retry_in(
 pub async fn get(
     redis: &redis::aio::ConnectionManager,
     id: &str,
-) -> Result<JobEnvelope, OxanusError> {
+) -> Result<Option<JobEnvelope>, OxanusError> {
     let mut redis = redis.clone();
-    let envelope: String = redis.hget(JOBS_KEY, id).await?;
-    Ok(serde_json::from_str(&envelope)?)
+    let envelope: Option<String> = redis.hget(JOBS_KEY, id).await?;
+    match envelope {
+        Some(envelope) => Ok(Some(serde_json::from_str(&envelope)?)),
+        None => Ok(None),
+    }
 }
 
 pub async fn get_many(
