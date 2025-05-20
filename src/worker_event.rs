@@ -4,7 +4,7 @@ use tokio::sync::OwnedSemaphorePermit;
 pub enum WorkerEvent {
     Job {
         queue: String,
-        job: serde_json::Value,
+        job_id: String,
         permit: OwnedSemaphorePermit,
     },
     Exit,

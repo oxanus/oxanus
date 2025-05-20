@@ -1,14 +1,11 @@
-mod cemetery;
 mod config;
 mod coordinator;
 mod error;
 mod executor;
 mod job_envelope;
 mod queue;
-mod redis_helper;
-mod retrying;
-mod scheduling;
 mod semaphores_map;
+mod storage;
 mod throttler;
 mod timed_migrator;
 mod worker;
@@ -16,14 +13,13 @@ mod worker_event;
 mod worker_registry;
 mod worker_state;
 
-use redis::AsyncCommands;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub use crate::config::Config;
 use crate::coordinator::Stats;
 pub use crate::error::OxanusError;
-pub use crate::job_envelope::JobEnvelope;
+pub use crate::job_envelope::{Job, JobEnvelope};
 pub use crate::queue::{
     Queue, QueueConfig, QueueKind, QueueRetry, QueueRetryBackoff, QueueThrottle,
 };
@@ -42,8 +38,14 @@ pub async fn run<
     let mut joinset = tokio::task::JoinSet::new();
     let stats = Arc::new(Mutex::new(Stats::default()));
 
-    tokio::spawn(scheduling::run(redis_client.clone()));
-    tokio::spawn(retrying::run(redis_client.clone()));
+    tokio::spawn(timed_migrator::run(
+        redis_client.clone(),
+        storage::SCHEDULE_QUEUE.to_string(),
+    ));
+    tokio::spawn(timed_migrator::run(
+        redis_client.clone(),
+        storage::RETRY_QUEUE.to_string(),
+    ));
 
     for queue_config in &config.queues {
         joinset.spawn(coordinator::run(
@@ -96,16 +98,12 @@ where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
-    let mut redis = redis.clone();
-    let queue_key = queue.key();
-
-    let envelope = JobEnvelope::new(queue_key.clone(), job)?;
+    let envelope = JobEnvelope::new(queue.key().clone(), job)?;
 
     if delay > 0 {
-        scheduling::enqueue_in(&redis, envelope, delay).await?;
+        storage::enqueue_in(&redis, envelope, delay).await?;
     } else {
-        let envelope_str = serde_json::to_string(&envelope)?;
-        let _: i32 = redis.rpush(queue_key, envelope_str).await?;
+        storage::enqueue(&redis, &envelope).await?;
     }
 
     Ok(0)

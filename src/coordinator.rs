@@ -8,13 +8,13 @@ use tokio::time::sleep;
 
 use crate::config::Config;
 use crate::error::OxanusError;
-use crate::executor;
 use crate::job_envelope::JobEnvelope;
 use crate::queue::{QueueConfig, QueueKind, QueueThrottle};
 use crate::semaphores_map::SemaphoresMap;
 use crate::throttler::Throttler;
 use crate::worker_event::WorkerEvent;
-pub use crate::worker_state::WorkerState;
+use crate::worker_state::WorkerState;
+use crate::{executor, storage};
 
 #[derive(Default, Debug)]
 pub struct Stats {
@@ -56,9 +56,13 @@ pub async fn run<
         .unwrap();
 
     loop {
-        let (queue, job_value, permit) = match job_rx.recv().await {
+        let (queue, job_id, permit) = match job_rx.recv().await {
             Some(job) => match job {
-                WorkerEvent::Job { queue, job, permit } => (queue, job, permit),
+                WorkerEvent::Job {
+                    queue,
+                    job_id,
+                    permit,
+                } => (queue, job_id, permit),
                 WorkerEvent::Exit => {
                     return Ok(());
                 }
@@ -68,13 +72,14 @@ pub async fn run<
             }
         };
 
-        let envelope: JobEnvelope = match serde_json::from_value(job_value) {
+        let envelope: JobEnvelope = match storage::get(&redis_manager, &job_id).await {
             Ok(envelope) => envelope,
             Err(e) => {
-                println!("Failed to parse job envelope: {}", e);
+                println!("Failed to get job envelope: {}", e);
                 continue;
             }
         };
+
         tracing::debug!("Received envelope: {:?}", &envelope);
         let job = match config
             .registry
@@ -224,26 +229,19 @@ async fn redis_listener(
         let semaphore = semaphores.get_or_create(queue_key.clone()).await;
         let permit = semaphore.acquire_owned().await.unwrap();
 
-        let msg = pop_queue_message(&mut redis_manager, &queue_config, &queue_key)
+        let job_id = pop_queue_message(&mut redis_manager, &queue_config, &queue_key)
             .await
             .expect("Failed to pop queue message");
 
-        match serde_json::from_str(&msg) {
-            Ok(msg) => {
-                let job = WorkerEvent::Job {
-                    queue: queue_key.clone(),
-                    job: msg,
-                    permit,
-                };
-                job_tx
-                    .send(job)
-                    .await
-                    .expect("Failed to send job to worker");
-            }
-            Err(e) => {
-                println!("Failed to parse job: {}", e);
-            }
-        }
+        let job = WorkerEvent::Job {
+            queue: queue_key.clone(),
+            job_id,
+            permit,
+        };
+        job_tx
+            .send(job)
+            .await
+            .expect("Failed to send job to worker");
     }
 }
 

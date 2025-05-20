@@ -214,6 +214,13 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
         6,
     )
     .await?;
+    oxanus::enqueue_in(
+        &redis_manager,
+        QueueTwo(Animal::Bird, 7),
+        Worker2Sec { id: 5, foo: 44 },
+        15,
+    )
+    .await?;
     oxanus::enqueue(&redis_manager, QueueThrottled, WorkerInstant {}).await?;
     oxanus::enqueue(&redis_manager, QueueThrottled, WorkerInstant2 {}).await?;
     oxanus::enqueue(&redis_manager, QueueThrottled, WorkerInstant {}).await?;

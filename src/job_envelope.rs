@@ -16,7 +16,7 @@ pub struct Job {
     pub name: String,
     pub queue: String,
     pub args: serde_json::Value,
-    pub created_at: i64,
+    pub created_at: u64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -37,7 +37,7 @@ impl JobEnvelope {
                 name: type_name::<T>().to_string(),
                 queue,
                 args: serde_json::to_value(&job)?,
-                created_at: chrono::Utc::now().timestamp_micros(),
+                created_at: u64::try_from(chrono::Utc::now().timestamp_micros())?,
             },
             meta: JobEnvelopeMeta { retries: 0 },
         })

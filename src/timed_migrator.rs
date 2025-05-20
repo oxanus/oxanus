@@ -1,9 +1,7 @@
 use redis::AsyncCommands;
 use std::collections::HashMap;
 
-use crate::{JobEnvelope, redis_helper};
-
-const SCHEDULED_QUEUE: &str = "oxanus:scheduled";
+use crate::{JobEnvelope, storage};
 
 pub async fn run(redis_client: redis::Client, queue: String) {
     tracing::info!("Starting timed migrator for queue: {}", queue);
@@ -15,32 +13,34 @@ pub async fn run(redis_client: redis::Client, queue: String) {
     loop {
         let now = chrono::Utc::now().timestamp_micros();
 
-        let envelopes_str: Vec<String> = redis_manager.zrangebyscore(&queue, 0, now).await.unwrap();
+        let job_ids: Vec<String> = redis_manager.zrangebyscore(&queue, 0, now).await.unwrap();
 
-        if envelopes_str.is_empty() {
+        if job_ids.is_empty() {
             tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
             continue;
         }
 
-        let mut envelopes: HashMap<String, Vec<JobEnvelope>> = HashMap::new();
+        let envelopes = storage::get_many(&mut redis_manager, &job_ids)
+            .await
+            .unwrap();
 
-        for envelope in envelopes_str {
-            let envelope: JobEnvelope = serde_json::from_str(&envelope).unwrap();
-            envelopes
-                .entry(envelope.job.queue.clone())
+        let mut map: HashMap<String, Vec<JobEnvelope>> = HashMap::new();
+
+        for envelope in envelopes {
+            map.entry(envelope.job.queue.clone())
                 .or_insert(vec![])
                 .push(envelope);
         }
 
-        for (queue, envelopes) in envelopes {
-            redis_helper::rpush_many(&mut redis_manager, &queue, &envelopes)
-                .await
-                .unwrap();
+        for (queue, envelopes) in map {
+            let job_ids: Vec<&str> = envelopes
+                .iter()
+                .map(|envelope| envelope.id.as_str())
+                .collect();
+
+            let _: i32 = redis_manager.rpush(queue, job_ids).await.unwrap();
         }
 
-        let _: i32 = redis_manager
-            .zrembyscore(SCHEDULED_QUEUE, 0, now)
-            .await
-            .unwrap();
+        let _: i32 = redis_manager.zrembyscore(&queue, 0, now).await.unwrap();
     }
 }

@@ -1,8 +1,6 @@
-pub use crate::job_envelope::JobEnvelope;
-use crate::worker::BoxedWorker;
-pub use crate::worker::Worker;
-pub use crate::worker_state::WorkerState;
-use crate::{cemetery, retrying};
+use crate::job_envelope::JobEnvelope;
+use crate::worker_state::WorkerState;
+use crate::{storage, worker::BoxedWorker};
 
 pub async fn run<DT: Send + Sync + Clone + 'static, ET: std::error::Error + Send + Sync>(
     redis: redis::aio::ConnectionManager,
@@ -30,17 +28,19 @@ pub async fn run<DT: Send + Sync + Clone + 'static, ET: std::error::Error + Send
 
     if is_err {
         if envelope.meta.retries < max_retries {
-            let updated_envelope = envelope.with_retries_incremented();
-
-            retrying::retry_in(&redis, updated_envelope, retry_delay)
+            storage::retry_in(&redis, envelope, retry_delay)
                 .await
                 .expect("Failed to retry job");
         } else {
             tracing::error!("Job {} failed after {} retries", envelope.id, max_retries);
-            cemetery::add(&redis, envelope)
+            storage::kill(&redis, &envelope)
                 .await
-                .expect("Failed to add job to cemetery");
+                .expect("Failed to kill job");
         }
+    } else {
+        storage::delete(&redis, &envelope)
+            .await
+            .expect("Failed to delete job");
     }
 
     result
