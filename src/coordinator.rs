@@ -98,7 +98,6 @@ pub async fn run<
             let redis_manager = redis_manager.clone();
             let job_name = envelope.job.name.clone();
             async move {
-                let data = data.clone();
                 let result =
                     executor::run(redis_manager.clone(), queue, job_name, job, envelope, data)
                         .await;

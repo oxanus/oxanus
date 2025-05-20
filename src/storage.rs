@@ -12,25 +12,50 @@ pub async fn enqueue(
     envelope: &JobEnvelope,
 ) -> Result<(), OxanusError> {
     let mut redis = redis.clone();
+
+    if should_skip_job(&mut redis, envelope).await? {
+        tracing::warn!("Unique job {} already exists, skipping", envelope.id);
+        return Ok(());
+    }
+
     let (_, _): ((), i32) = redis::pipe()
         .hset(JOBS_KEY, &envelope.id, serde_json::to_string(envelope)?)
         .rpush(&envelope.job.queue, &envelope.id)
         .query_async(&mut redis)
         .await?;
+
     Ok(())
+}
+
+async fn should_skip_job(
+    redis: &mut redis::aio::ConnectionManager,
+    envelope: &JobEnvelope,
+) -> Result<bool, OxanusError> {
+    if !envelope.meta.unique {
+        return Ok(false);
+    }
+
+    let exists: bool = redis.hexists(JOBS_KEY, &envelope.id).await?;
+    Ok(exists)
 }
 
 pub async fn enqueue_in(
     redis: &redis::aio::ConnectionManager,
-    envelope: JobEnvelope,
+    envelope: &JobEnvelope,
     delay_s: u64,
 ) -> Result<(), OxanusError> {
     let mut redis = redis.clone();
+
+    if should_skip_job(&mut redis, &envelope).await? {
+        tracing::warn!("Unique job {} already exists, skipping", envelope.id);
+        return Ok(());
+    }
+
     let (_, _): ((), ()) = redis::pipe()
         .hset(JOBS_KEY, &envelope.id, serde_json::to_string(&envelope)?)
         .zadd(
             SCHEDULE_QUEUE,
-            envelope.id,
+            &envelope.id,
             envelope.job.created_at + delay_s * 1_000_000,
         )
         .query_async(&mut redis)

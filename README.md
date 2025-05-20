@@ -15,9 +15,9 @@ Oxanus is job processing library written in Rust that won't suck (or at least it
 - [x] Scheduled Jobs
 - [x] Dynamic Queues
 - [x] Throttling (queue-based)
+- [x] Unique Jobs
 - [ ] Periodic Jobs
 - [ ] Resilient Jobs
-- [ ] Unique Jobs
 
 ## Dev
 

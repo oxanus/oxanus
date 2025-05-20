@@ -25,4 +25,8 @@ pub trait Worker: Send + Sync {
 
         u64::pow(5, retries + 2)
     }
+
+    fn unique_id(&self) -> Option<String> {
+        None
+    }
 }

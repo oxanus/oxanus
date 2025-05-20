@@ -22,6 +22,7 @@ pub struct Job {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct JobEnvelopeMeta {
     pub retries: u32,
+    pub unique: bool,
 }
 
 impl JobEnvelope {
@@ -31,15 +32,18 @@ impl JobEnvelope {
         DT: Send + Sync + Clone + 'static,
         ET: std::error::Error + Send + Sync + 'static,
     {
+        let unique_id = job.unique_id();
+        let unique = unique_id.is_some();
+        let id = unique_id.unwrap_or_else(|| Uuid::new_v4().to_string());
         Ok(Self {
-            id: Uuid::new_v4().to_string(),
+            id,
             job: Job {
                 name: type_name::<T>().to_string(),
                 queue,
                 args: serde_json::to_value(&job)?,
                 created_at: u64::try_from(chrono::Utc::now().timestamp_micros())?,
             },
-            meta: JobEnvelopeMeta { retries: 0 },
+            meta: JobEnvelopeMeta { retries: 0, unique },
         })
     }
 
@@ -49,6 +53,7 @@ impl JobEnvelope {
             job: self.job,
             meta: JobEnvelopeMeta {
                 retries: self.meta.retries + 1,
+                unique: self.meta.unique,
             },
         }
     }

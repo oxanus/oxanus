@@ -74,7 +74,7 @@ pub async fn enqueue<
     redis: &redis::aio::ConnectionManager,
     queue: impl Queue,
     job: T,
-) -> Result<i64, OxanusError>
+) -> Result<(), OxanusError>
 where
     T: Worker<Data = DT, Error = ET> + serde::Serialize,
     DT: Send + Sync + Clone + 'static,
@@ -92,7 +92,7 @@ pub async fn enqueue_in<
     queue: impl Queue,
     job: T,
     delay: u64,
-) -> Result<i64, OxanusError>
+) -> Result<(), OxanusError>
 where
     T: Worker<Data = DT, Error = ET> + serde::Serialize,
     DT: Send + Sync + Clone + 'static,
@@ -101,10 +101,8 @@ where
     let envelope = JobEnvelope::new(queue.key().clone(), job)?;
 
     if delay > 0 {
-        storage::enqueue_in(&redis, envelope, delay).await?;
+        storage::enqueue_in(&redis, &envelope, delay).await
     } else {
-        storage::enqueue(&redis, &envelope).await?;
+        storage::enqueue(&redis, &envelope).await
     }
-
-    Ok(0)
 }
