@@ -1,3 +1,5 @@
+use std::{collections::HashMap, num::NonZero};
+
 use redis::AsyncCommands;
 
 use crate::{JobEnvelope, OxanusError};
@@ -19,7 +21,7 @@ pub async fn enqueue(
         return Ok(());
     }
 
-    let (_, _): ((), i32) = redis::pipe()
+    let _: () = redis::pipe()
         .hset(JOBS_KEY, &envelope.id, serde_json::to_string(envelope)?)
         .hexpire(
             JOBS_KEY,
@@ -58,7 +60,7 @@ pub async fn enqueue_in(
         return Ok(());
     }
 
-    let (_, _): ((), ()) = redis::pipe()
+    let _: () = redis::pipe()
         .hset(JOBS_KEY, &envelope.id, serde_json::to_string(&envelope)?)
         .hexpire(
             JOBS_KEY,
@@ -76,6 +78,27 @@ pub async fn enqueue_in(
     Ok(())
 }
 
+pub async fn blpop(
+    redis: &redis::aio::ConnectionManager,
+    queue: &str,
+    timeout: f64,
+) -> Result<Option<String>, OxanusError> {
+    let mut redis = redis.clone();
+    let msg: redis::Value = redis.blpop(queue, timeout).await?;
+    let value: Option<(String, String)> = redis::FromRedisValue::from_redis_value(&msg)?;
+    Ok(value.map(|(_queue, job_id)| job_id))
+}
+
+pub async fn lpop(
+    redis: &redis::aio::ConnectionManager,
+    queue: &str,
+) -> Result<Option<String>, OxanusError> {
+    let mut redis = redis.clone();
+    let msg: redis::Value = redis.lpop(queue, Some(NonZero::new(1).unwrap())).await?;
+    let value: Vec<String> = redis::FromRedisValue::from_redis_value(&msg)?;
+    Ok(value.first().map(|job_id| job_id.clone()))
+}
+
 pub async fn retry_in(
     redis: &redis::aio::ConnectionManager,
     envelope: JobEnvelope,
@@ -83,7 +106,7 @@ pub async fn retry_in(
 ) -> Result<(), OxanusError> {
     let updated_envelope = envelope.with_retries_incremented();
     let mut redis = redis.clone();
-    let (_, _): ((), ()) = redis::pipe()
+    let _: () = redis::pipe()
         .hset(
             JOBS_KEY,
             &updated_envelope.id,
@@ -153,4 +176,42 @@ pub async fn delete(
     let mut redis = redis.clone();
     let _: () = redis.hdel(JOBS_KEY, &envelope.id).await?;
     Ok(())
+}
+
+pub async fn enqueue_scheduled(
+    redis: &redis::aio::ConnectionManager,
+    schedule_queue: &str,
+) -> Result<usize, OxanusError> {
+    let mut redis = redis.clone();
+    let now = chrono::Utc::now().timestamp_micros();
+
+    let job_ids: Vec<String> = redis.zrangebyscore(schedule_queue, 0, now).await?;
+
+    if job_ids.is_empty() {
+        return Ok(0);
+    }
+
+    let envelopes = get_many(&redis, &job_ids).await?;
+
+    let mut map: HashMap<&str, Vec<&JobEnvelope>> = HashMap::new();
+    let envelopes_count = envelopes.len();
+
+    for envelope in envelopes.iter() {
+        map.entry(envelope.job.queue.as_str())
+            .or_insert(vec![])
+            .push(envelope);
+    }
+
+    for (queue, envelopes) in map {
+        let job_ids: Vec<&str> = envelopes
+            .iter()
+            .map(|envelope| envelope.id.as_str())
+            .collect();
+
+        let _: i32 = redis.rpush(queue, job_ids).await?;
+    }
+
+    let _: i32 = redis.zrembyscore(&schedule_queue, 0, now).await?;
+
+    Ok(envelopes_count)
 }

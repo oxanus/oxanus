@@ -1,6 +1,5 @@
 use redis::AsyncCommands;
 use std::collections::HashSet;
-use std::num::NonZero;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, mpsc};
@@ -178,11 +177,8 @@ async fn pop_queue_message_wo_throttle(
     queue_key: &str,
 ) -> Result<String, OxanusError> {
     loop {
-        let msg: redis::Value = redis_manager.blpop(queue_key, 10.0).await?;
-        let value: Option<(String, String)> = redis::FromRedisValue::from_redis_value(&msg)?;
-
-        if let Some((_, msg)) = value {
-            return Ok(msg);
+        if let Some(job_id) = storage::blpop(redis_manager, queue_key, 10.0).await? {
+            return Ok(job_id);
         }
     }
 }
@@ -203,13 +199,9 @@ async fn pop_queue_message_w_throttle(
         let state = throttler.state(redis_manager).await?;
 
         if state.is_allowed {
-            let msg: redis::Value = redis_manager
-                .lpop(&queue_key, Some(NonZero::new(1).unwrap()))
-                .await?;
-            let value: Vec<String> = redis::FromRedisValue::from_redis_value(&msg)?;
-            if let Some(msg) = value.first() {
+            if let Some(job_id) = storage::lpop(redis_manager, queue_key).await? {
                 throttler.consume().await?;
-                return Ok(msg.clone());
+                return Ok(job_id);
             }
         }
 
