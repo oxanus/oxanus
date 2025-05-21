@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 async-trait = "0.1"
 chrono = { version = "^0.4", features = ["serde"] }
+gethostname = "^1.0"
 redis = { version = "^0.31", features = [
   "connection-manager",
   "tcp_nodelay",

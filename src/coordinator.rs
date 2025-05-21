@@ -177,7 +177,7 @@ async fn pop_queue_message_wo_throttle(
     queue_key: &str,
 ) -> Result<String, OxanusError> {
     loop {
-        if let Some(job_id) = storage::blpop(redis_manager, queue_key, 10.0).await? {
+        if let Some(job_id) = storage::blocking_dequeue(redis_manager, queue_key, 10.0).await? {
             return Ok(job_id);
         }
     }
@@ -199,7 +199,7 @@ async fn pop_queue_message_w_throttle(
         let state = throttler.state(redis_manager).await?;
 
         if state.is_allowed {
-            if let Some(job_id) = storage::lpop(redis_manager, queue_key).await? {
+            if let Some(job_id) = storage::dequeue(redis_manager, queue_key).await? {
                 throttler.consume().await?;
                 return Ok(job_id);
             }

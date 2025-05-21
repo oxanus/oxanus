@@ -7,7 +7,6 @@ mod queue;
 mod semaphores_map;
 mod storage;
 mod throttler;
-mod timed_migrator;
 mod worker;
 mod worker_event;
 mod worker_registry;
@@ -38,14 +37,10 @@ pub async fn run<
     let mut joinset = tokio::task::JoinSet::new();
     let stats = Arc::new(Mutex::new(Stats::default()));
 
-    tokio::spawn(timed_migrator::run(
-        redis_client.clone(),
-        storage::SCHEDULE_QUEUE.to_string(),
-    ));
-    tokio::spawn(timed_migrator::run(
-        redis_client.clone(),
-        storage::RETRY_QUEUE.to_string(),
-    ));
+    tokio::spawn(storage::retry_loop(redis_client.clone()));
+    tokio::spawn(storage::schedule_loop(redis_client.clone()));
+    tokio::spawn(storage::ping_loop(redis_client.clone()));
+    tokio::spawn(storage::resurrect_loop(redis_client.clone()));
 
     for queue_config in &config.queues {
         joinset.spawn(coordinator::run(

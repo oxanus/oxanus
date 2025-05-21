@@ -10,12 +10,18 @@ pub async fn run<DT: Send + Sync + Clone + 'static, ET: std::error::Error + Send
     envelope: JobEnvelope,
     data: WorkerState<DT>,
 ) -> Result<(), ET> {
-    tracing::info!(queue = queue, job = job_name, "Job started");
+    tracing::info!(
+        job_id = envelope.id,
+        queue = queue,
+        job = job_name,
+        "Job started"
+    );
     let start = std::time::Instant::now();
     let result = job.process(&data).await;
     let duration = start.elapsed();
     let is_err = result.is_err();
     tracing::info!(
+        job_id = envelope.id,
         queue = queue,
         job = job_name,
         success = !is_err,
@@ -38,9 +44,9 @@ pub async fn run<DT: Send + Sync + Clone + 'static, ET: std::error::Error + Send
                 .expect("Failed to kill job");
         }
     } else {
-        storage::delete(&redis, &envelope)
+        storage::finish(&redis, &envelope)
             .await
-            .expect("Failed to delete job");
+            .expect("Failed to finish job");
     }
 
     result
