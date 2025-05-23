@@ -22,7 +22,7 @@ pub async fn run(
 ) {
     let mut redis_manager = redis::aio::ConnectionManager::new(redis_client.clone())
         .await
-        .unwrap();
+        .expect("Failed to connect to Redis");
 
     loop {
         let semaphore = semaphores.get_or_create(queue_key.clone()).await;
@@ -43,16 +43,6 @@ pub async fn run(
                 break;
             }
         }
-
-        // let job_id = pop_queue_message(&mut redis_manager, &queue_config, &queue_key)
-        //     .await
-        //     .expect("Failed to pop queue message");
-
-        // let job = WorkerEvent::Job(WorkerEventJob { job_id, permit });
-        // job_tx
-        //     .send(job)
-        //     .await
-        //     .expect("Failed to send job to worker");
     }
 }
 

@@ -56,3 +56,9 @@ impl<DT, ET> WorkerRegistry<DT, ET> {
         }
     }
 }
+
+impl<DT, ET> Default for WorkerRegistry<DT, ET> {
+    fn default() -> Self {
+        Self::new()
+    }
+}

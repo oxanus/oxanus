@@ -12,15 +12,15 @@ pub struct Stats {
     pub failed: u64,
 }
 
-pub async fn run<
-    DT: Send + Sync + Clone + 'static,
-    ET: std::error::Error + Send + Sync + 'static,
->(
+pub async fn run<DT, ET>(
     mut rx: mpsc::Receiver<Result<(), ET>>,
     cancel_token: CancellationToken,
     config: Arc<Config<DT, ET>>,
     stats: Arc<Mutex<Stats>>,
-) {
+) where
+    DT: Send + Sync + Clone + 'static,
+    ET: std::error::Error + Send + Sync + 'static,
+{
     loop {
         select! {
             result = rx.recv() => {
@@ -36,15 +36,15 @@ pub async fn run<
     }
 }
 
-async fn update_stats<
-    DT: Send + Sync + Clone + 'static,
-    ET: std::error::Error + Send + Sync + 'static,
->(
+async fn update_stats<DT, ET>(
     cancel_token: CancellationToken,
     stats: Arc<Mutex<Stats>>,
     result: Result<(), ET>,
     config: Arc<Config<DT, ET>>,
-) {
+) where
+    DT: Send + Sync + Clone + 'static,
+    ET: std::error::Error + Send + Sync + 'static,
+{
     let processed = {
         let mut stats = stats.lock().await;
         stats.processed += 1;

@@ -57,3 +57,9 @@ impl<DT, ET> Config<DT, ET> {
         self
     }
 }
+
+impl<DT, ET> Default for Config<DT, ET> {
+    fn default() -> Self {
+        Self::new()
+    }
+}

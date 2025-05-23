@@ -5,6 +5,10 @@ edition = "2024"
 license = "MIT"
 description = "A simple & fast job queue system."
 
+[lib]
+doctest = false
+test = true
+
 [dependencies]
 async-trait = "0.1"
 chrono = { version = "^0.4", features = ["serde"] }
@@ -24,9 +28,10 @@ uuid = { version = "^1.17", features = ["serde", "v4"] }
 signal-hook = { version = "^0.3" }
 
 [dev-dependencies]
-testresult = "^0.4"
 divan = "^0.1"
+dotenvy = "^0.15"
 rand = "^0.9"
+testresult = "^0.4"
 tracing-subscriber = { version = "^0.3", features = ["env-filter"] }
 
 [[bench]]

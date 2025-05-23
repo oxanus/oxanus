@@ -58,7 +58,7 @@ pub async fn enqueue_in(
 ) -> Result<(), OxanusError> {
     let mut redis = redis.clone();
 
-    if should_skip_job(&mut redis, &envelope).await? {
+    if should_skip_job(&mut redis, envelope).await? {
         tracing::warn!("Unique job {} already exists, skipping", envelope.id);
         return Ok(());
     }
@@ -218,7 +218,7 @@ pub async fn enqueue_scheduled(
 
     for envelope in envelopes.iter() {
         map.entry(envelope.job.queue.as_str())
-            .or_insert(vec![])
+            .or_default()
             .push(envelope);
     }
 
@@ -231,7 +231,7 @@ pub async fn enqueue_scheduled(
         let _: i32 = redis.lpush(queue, job_ids).await?;
     }
 
-    let _: i32 = redis.zrembyscore(&schedule_queue, 0, now).await?;
+    let _: i32 = redis.zrembyscore(schedule_queue, 0, now).await?;
 
     Ok(envelopes_count)
 }
@@ -242,14 +242,14 @@ pub async fn retry_loop(
 ) -> Result<(), OxanusError> {
     tracing::info!("Starting retry loop");
 
-    let mut redis_manager = redis::aio::ConnectionManager::new(redis_client).await?;
+    let redis_manager = redis::aio::ConnectionManager::new(redis_client).await?;
 
     loop {
         if cancel_token.is_cancelled() {
             return Ok(());
         }
 
-        enqueue_scheduled(&mut redis_manager, RETRY_QUEUE).await?;
+        enqueue_scheduled(&redis_manager, RETRY_QUEUE).await?;
         tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
     }
 }
@@ -260,14 +260,14 @@ pub async fn schedule_loop(
 ) -> Result<(), OxanusError> {
     tracing::info!("Starting schedule loop");
 
-    let mut redis_manager = redis::aio::ConnectionManager::new(redis_client).await?;
+    let redis_manager = redis::aio::ConnectionManager::new(redis_client).await?;
 
     loop {
         if cancel_token.is_cancelled() {
             return Ok(());
         }
 
-        enqueue_scheduled(&mut redis_manager, SCHEDULE_QUEUE).await?;
+        enqueue_scheduled(&redis_manager, SCHEDULE_QUEUE).await?;
         tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
     }
 }
@@ -276,14 +276,14 @@ pub async fn ping_loop(
     redis_client: redis::Client,
     cancel_token: CancellationToken,
 ) -> Result<(), OxanusError> {
-    let mut redis_manager = redis::aio::ConnectionManager::new(redis_client).await?;
+    let redis_manager = redis::aio::ConnectionManager::new(redis_client).await?;
 
     loop {
         if cancel_token.is_cancelled() {
             return Ok(());
         }
 
-        ping(&mut redis_manager).await?;
+        ping(&redis_manager).await?;
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
 }
@@ -342,7 +342,7 @@ pub async fn resurrect(redis: &mut redis::aio::ConnectionManager) -> Result<(), 
             }
 
             for job_id in job_ids {
-                match get(&redis, &job_id).await? {
+                match get(redis, &job_id).await? {
                     Some(envelope) => {
                         tracing::info!(
                             job_id = job_id,
@@ -350,7 +350,7 @@ pub async fn resurrect(redis: &mut redis::aio::ConnectionManager) -> Result<(), 
                             job = envelope.job.name,
                             "Resurrecting job"
                         );
-                        enqueue(&redis, &envelope).await?;
+                        enqueue(redis, &envelope).await?;
                         let _: () = redis.lrem(&processing_queue, 1, &job_id).await?;
                     }
                     None => tracing::warn!("Job {} not found", job_id),
@@ -358,7 +358,7 @@ pub async fn resurrect(redis: &mut redis::aio::ConnectionManager) -> Result<(), 
             }
         }
 
-        let _: () = redis.zrem(&PROCESSES_KEY, &process_id).await?;
+        let _: () = redis.zrem(PROCESSES_KEY, &process_id).await?;
     }
 
     Ok(())

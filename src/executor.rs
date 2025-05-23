@@ -2,34 +2,37 @@ use crate::job_envelope::JobEnvelope;
 use crate::worker_state::WorkerState;
 use crate::{storage, worker::BoxedWorker};
 
-pub async fn run<DT: Send + Sync + Clone + 'static, ET: std::error::Error + Send + Sync>(
+pub async fn run<DT, ET>(
     redis: redis::aio::ConnectionManager,
-    job_name: String,
-    job: BoxedWorker<DT, ET>,
+    worker: BoxedWorker<DT, ET>,
     envelope: JobEnvelope,
     data: WorkerState<DT>,
-) -> Result<(), ET> {
+) -> Result<(), ET>
+where
+    DT: Send + Sync + Clone + 'static,
+    ET: std::error::Error + Send + Sync + 'static,
+{
     tracing::info!(
         job_id = envelope.id,
         queue = envelope.job.queue,
-        job = job_name,
+        job = envelope.job.name,
         "Job started"
     );
     let start = std::time::Instant::now();
-    let result = job.process(&data).await;
+    let result = worker.process(&data).await;
     let duration = start.elapsed();
     let is_err = result.is_err();
     tracing::info!(
         job_id = envelope.id,
         queue = envelope.job.queue,
-        job = job_name,
+        job = envelope.job.name,
         success = !is_err,
         duration = duration.as_millis(),
         retries = envelope.meta.retries,
         "Job finished"
     );
-    let max_retries = job.max_retries();
-    let retry_delay = job.retry_delay(envelope.meta.retries);
+    let max_retries = worker.max_retries();
+    let retry_delay = worker.retry_delay(envelope.meta.retries);
 
     if is_err {
         if envelope.meta.retries < max_retries {

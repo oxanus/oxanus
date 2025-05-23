@@ -18,17 +18,18 @@ use crate::{
     storage,
 };
 
-pub async fn run<
-    DT: Send + Sync + Clone + 'static,
-    ET: std::error::Error + Send + Sync + 'static,
->(
+pub async fn run<DT, ET>(
     redis_client: redis::Client,
     cancel_token: CancellationToken,
     config: Arc<Config<DT, ET>>,
     stats: Arc<Mutex<Stats>>,
     data: WorkerState<DT>,
     queue_config: QueueConfig,
-) -> Result<(), OxanusError> {
+) -> Result<(), OxanusError>
+where
+    DT: Send + Sync + Clone + 'static,
+    ET: std::error::Error + Send + Sync + 'static,
+{
     let concurrency = queue_config.concurrency;
     let (result_tx, result_rx) = mpsc::channel::<Result<(), ET>>(concurrency);
     let (job_tx, mut job_rx) = mpsc::channel::<WorkerEvent>(concurrency);
@@ -50,7 +51,7 @@ pub async fn run<
 
     let redis_manager = redis::aio::ConnectionManager::new(redis_client.clone())
         .await
-        .unwrap();
+        .expect("Failed to connect to Redis");
 
     loop {
         select! {
@@ -76,17 +77,7 @@ pub async fn run<
         }
     }
 
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-    loop {
-        let busy_count = semaphores.busy_count().await;
-        if busy_count == 0 {
-            break;
-        }
-
-        tracing::info!("Waiting for {} worker to finish", busy_count);
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-    }
+    wait_for_workers_to_finish(semaphores.clone()).await;
 
     Ok(())
 }
@@ -129,9 +120,8 @@ async fn process_job<DT, ET>(
         let data = data.clone();
         let result_tx = result_tx.clone();
         let redis_manager = redis_manager.clone();
-        let job_name = envelope.job.name.clone();
         async move {
-            let result = executor::run(redis_manager.clone(), job_name, job, envelope, data).await;
+            let result = executor::run(redis_manager.clone(), job, envelope, data).await;
             drop(job_event.permit);
             result_tx.send(result).await.ok();
         }
@@ -149,7 +139,7 @@ async fn run_queue_watcher(
 
     let mut redis_manager = redis::aio::ConnectionManager::new(redis_client.clone())
         .await
-        .unwrap();
+        .expect("Failed to connect to Redis");
 
     loop {
         let all_queues: HashSet<String> = match &queue_config.kind {
@@ -186,5 +176,19 @@ async fn run_queue_watcher(
         } else {
             break;
         }
+    }
+}
+
+async fn wait_for_workers_to_finish(semaphores: Arc<SemaphoresMap>) {
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    loop {
+        let busy_count = semaphores.busy_count().await;
+        if busy_count == 0 {
+            break;
+        }
+
+        tracing::info!("Waiting for {} workers to finish", busy_count);
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     }
 }

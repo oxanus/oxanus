@@ -14,7 +14,9 @@ mod worker_event;
 mod worker_registry;
 mod worker_state;
 
-use signal_hook::consts::SIGINT;
+#[cfg(test)]
+mod test_helper;
+
 use signal_hook::iterator::Signals;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -23,21 +25,20 @@ use tokio_util::sync::CancellationToken;
 pub use crate::config::Config;
 pub use crate::error::OxanusError;
 pub use crate::job_envelope::{Job, JobEnvelope};
-pub use crate::queue::{
-    Queue, QueueConfig, QueueKind, QueueRetry, QueueRetryBackoff, QueueThrottle,
-};
+pub use crate::queue::{Queue, QueueConfig, QueueKind, QueueThrottle};
 use crate::result_collector::Stats;
 pub use crate::worker::Worker;
 pub use crate::worker_state::WorkerState;
 
-pub async fn run<
-    DT: Send + Sync + Clone + 'static,
-    ET: std::error::Error + Send + Sync + 'static,
->(
+pub async fn run<DT, ET>(
     redis_client: &redis::Client,
     config: Config<DT, ET>,
     data: WorkerState<DT>,
-) -> Result<Stats, OxanusError> {
+) -> Result<Stats, OxanusError>
+where
+    DT: Send + Sync + Clone + 'static,
+    ET: std::error::Error + Send + Sync + 'static,
+{
     let config = Arc::new(config);
     let mut joinset = tokio::task::JoinSet::new();
     let stats = Arc::new(Mutex::new(Stats::default()));
@@ -71,12 +72,11 @@ pub async fn run<
         ));
     }
 
-    let mut signals = Signals::new([SIGINT])?;
+    let mut signals = Signals::new(config.shutdown_signals.clone())?;
 
-    for sig in signals.forever() {
+    if let Some(sig) = signals.forever().next() {
         println!("Received signal {:?}", sig);
         cancel_token.cancel();
-        break;
     }
 
     joinset.join_all().await;
@@ -88,11 +88,7 @@ pub async fn run<
     Ok(stats)
 }
 
-pub async fn enqueue<
-    T,
-    DT: Send + Sync + Clone + 'static,
-    ET: std::error::Error + Send + Sync + 'static,
->(
+pub async fn enqueue<T, DT, ET>(
     redis: &redis::aio::ConnectionManager,
     queue: impl Queue,
     job: T,
@@ -105,11 +101,7 @@ where
     enqueue_in(redis, queue, job, 0).await
 }
 
-pub async fn enqueue_in<
-    T,
-    DT: Send + Sync + Clone + 'static,
-    ET: std::error::Error + Send + Sync + 'static,
->(
+pub async fn enqueue_in<T, DT, ET>(
     redis: &redis::aio::ConnectionManager,
     queue: impl Queue,
     job: T,
@@ -123,8 +115,8 @@ where
     let envelope = JobEnvelope::new(queue.key().clone(), job)?;
 
     if delay > 0 {
-        storage::enqueue_in(&redis, &envelope, delay).await
+        storage::enqueue_in(redis, &envelope, delay).await
     } else {
-        storage::enqueue(&redis, &envelope).await
+        storage::enqueue(redis, &envelope).await
     }
 }

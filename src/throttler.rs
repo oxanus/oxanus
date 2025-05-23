@@ -23,7 +23,7 @@ impl Throttler {
     ) -> Self {
         Throttler {
             redis,
-            key: Self::build_key(&key),
+            key: Self::build_key(key),
             limit,
             window_ms,
         }
@@ -31,7 +31,7 @@ impl Throttler {
 
     pub async fn consume(&self) -> Result<ThrottlerState, OxanusError> {
         let mut redis = self.redis.clone();
-        let current_time = u64::try_from(chrono::Utc::now().timestamp_millis())?;
+        let current_time = u64::try_from(chrono::Utc::now().timestamp_micros())?;
         let state = self.state(&mut redis).await?;
 
         if state.is_allowed {
@@ -50,19 +50,12 @@ impl Throttler {
         }
     }
 
-    // pub async fn is_allowed(&self) -> Result<bool, OxanusError> {
-    //     let mut redis = self.redis.clone();
-    //     let state = self.state(&mut redis).await?;
-
-    //     Ok(state.is_allowed)
-    // }
-
     pub async fn state(
         &self,
         redis: &mut redis::aio::ConnectionManager,
     ) -> Result<ThrottlerState, OxanusError> {
-        let now = u64::try_from(chrono::Utc::now().timestamp_millis())?;
-        let window_start = now - self.window_ms;
+        let now = u64::try_from(chrono::Utc::now().timestamp_micros())?;
+        let window_start = now - self.window_micros();
 
         let (_, first, request_count): ((), Vec<(String, f64)>, u64) = redis::pipe()
             .zrembyscore(&self.key, 0, window_start)
@@ -79,11 +72,13 @@ impl Throttler {
 
         let is_allowed = request_count < self.limit;
 
-        let throttled_for = if is_allowed {
+        let throttled_for_micros = if is_allowed {
             None
         } else {
-            accurate_window_start.map(|start| now - start + self.window_ms + 1)
+            accurate_window_start.map(|start| now - start + self.window_micros())
         };
+
+        let throttled_for = throttled_for_micros.map(|micros| micros / 1000 + 1);
 
         Ok(ThrottlerState {
             requests: request_count,
@@ -93,41 +88,39 @@ impl Throttler {
     }
 
     fn build_key(key: &str) -> String {
-        format!("throttler:{}", key)
+        format!("oxanus:throttler:{}", key)
     }
 
     fn window_s(&self) -> u64 {
         self.window_ms / 1000
+    }
+
+    fn window_micros(&self) -> u64 {
+        self.window_ms * 1000
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::distr::{Alphanumeric, SampleString};
+    use crate::test_helper::*;
     use testresult::TestResult;
-
-    pub fn random_string() -> String {
-        Alphanumeric.sample_string(&mut rand::rng(), 16)
-    }
-
-    async fn redis() -> Result<redis::aio::ConnectionManager, redis::RedisError> {
-        let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL is not set");
-        let redis_client =
-            redis::Client::open(redis_url.clone()).expect("Failed to open Redis client");
-        let redis_manager = redis::aio::ConnectionManager::new(redis_client).await?;
-        Ok(redis_manager)
-    }
 
     #[tokio::test]
     async fn test_consume() -> TestResult {
-        let redis = redis().await?;
+        let redis = redis_manager().await?;
         let key = random_string();
         let rate_limiter = Throttler::new(redis, &key, 2, 60000);
         assert!(rate_limiter.consume().await?.is_allowed);
         assert!(rate_limiter.consume().await?.is_allowed);
-        assert!(!rate_limiter.consume().await?.is_allowed);
-        assert!(!rate_limiter.consume().await?.is_allowed);
+        let state = rate_limiter.consume().await?;
+        assert!(!state.is_allowed);
+        assert!(state.throttled_for.is_some());
+        assert!(state.throttled_for.unwrap() >= 60000);
+        let state = rate_limiter.consume().await?;
+        assert!(!state.is_allowed);
+        assert!(state.throttled_for.is_some());
+        assert!(state.throttled_for.unwrap() >= 60000);
 
         Ok(())
     }

@@ -8,7 +8,6 @@ pub struct QueueConfig {
     pub kind: QueueKind,
     pub concurrency: usize,
     pub throttle: Option<QueueThrottle>,
-    // pub retry: QueueRetry,
 }
 
 #[derive(Debug, Clone)]
@@ -28,20 +27,7 @@ impl QueueKind {
 }
 
 #[derive(Debug, Clone)]
-pub struct QueueRetry {
-    pub max_retries: usize,
-    pub delay: u64,
-    pub backoff: QueueRetryBackoff,
-}
-
-#[derive(Debug, Clone)]
 pub struct QueueThrottle {
     pub window_ms: u64,
     pub limit: u64,
-}
-
-#[derive(Debug, Clone)]
-pub enum QueueRetryBackoff {
-    None,
-    Exponential { factor: f64 },
 }
