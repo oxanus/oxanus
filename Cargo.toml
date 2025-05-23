@@ -12,6 +12,7 @@ test = true
 [dependencies]
 async-trait = "0.1"
 chrono = { version = "^0.4", features = ["serde"] }
+futures = { version = "^0.3" }
 gethostname = "^1.0"
 redis = { version = "^0.31", features = [
   "connection-manager",
@@ -26,6 +27,7 @@ tokio-util = { version = "^0.7" }
 tracing = { version = "^0.1", features = ["log"] }
 uuid = { version = "^1.17", features = ["serde", "v4"] }
 signal-hook = { version = "^0.3" }
+signal-hook-tokio = { version = "^0.3", features = ["futures-v0_3"] }
 
 [dev-dependencies]
 divan = "^0.1"

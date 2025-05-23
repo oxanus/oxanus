@@ -53,16 +53,17 @@ async fn pop_queue_message(
 ) -> Result<String, OxanusError> {
     match &queue_config.throttle {
         Some(throttle) => pop_queue_message_w_throttle(redis_manager, queue_key, throttle).await,
-        None => pop_queue_message_wo_throttle(redis_manager, queue_key).await,
+        None => pop_queue_message_wo_throttle(redis_manager, queue_key, 10.0).await,
     }
 }
 
 async fn pop_queue_message_wo_throttle(
     redis_manager: &mut redis::aio::ConnectionManager,
     queue_key: &str,
+    timeout: f64,
 ) -> Result<String, OxanusError> {
     loop {
-        if let Some(job_id) = storage::blocking_dequeue(redis_manager, queue_key, 10.0).await? {
+        if let Some(job_id) = storage::blocking_dequeue(redis_manager, queue_key, timeout).await? {
             return Ok(job_id);
         }
     }

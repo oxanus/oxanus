@@ -17,8 +17,10 @@ mod worker_state;
 #[cfg(test)]
 mod test_helper;
 
-use signal_hook::iterator::Signals;
+use futures::stream::StreamExt;
+use signal_hook_tokio::Signals;
 use std::sync::Arc;
+use tokio::select;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
@@ -74,9 +76,12 @@ where
 
     let mut signals = Signals::new(config.shutdown_signals.clone())?;
 
-    if let Some(sig) = signals.forever().next() {
-        println!("Received signal {:?}", sig);
-        cancel_token.cancel();
+    select! {
+        _ = cancel_token.cancelled() => {}
+        sig = signals.next() => {
+            println!("Received signal {:?}", sig);
+            cancel_token.cancel();
+        }
     }
 
     joinset.join_all().await;

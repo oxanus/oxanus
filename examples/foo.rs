@@ -165,7 +165,8 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
         .register_worker::<Worker1Sec>()
         .register_worker::<Worker2Sec>()
         .register_worker::<WorkerInstant>()
-        .register_worker::<WorkerInstant2>();
+        .register_worker::<WorkerInstant2>()
+        .exit_when_processed(13);
 
     oxanus::enqueue(
         &redis_manager,

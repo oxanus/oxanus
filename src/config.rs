@@ -7,7 +7,8 @@ use crate::worker_registry::WorkerRegistry;
 pub struct Config<DT, ET> {
     pub registry: WorkerRegistry<DT, ET>,
     pub queues: Vec<QueueConfig>,
-    pub exit_when_finished: Option<u64>,
+    pub exit_when_finished: bool,
+    pub exit_when_processed: Option<u64>,
     pub shutdown_signals: Vec<i32>,
 }
 
@@ -16,7 +17,8 @@ impl<DT, ET> Config<DT, ET> {
         Self {
             registry: WorkerRegistry::new(),
             queues: Vec::new(),
-            exit_when_finished: None,
+            exit_when_finished: false,
+            exit_when_processed: None,
             shutdown_signals: vec![SIGINT, SIGTERM],
         }
     }
@@ -47,8 +49,13 @@ impl<DT, ET> Config<DT, ET> {
         self
     }
 
-    pub fn exit_when_finished(mut self, exit_when_finished: u64) -> Self {
-        self.exit_when_finished = Some(exit_when_finished);
+    pub fn exit_when_finished(mut self) -> Self {
+        self.exit_when_finished = true;
+        self
+    }
+
+    pub fn exit_when_processed(mut self, processed: u64) -> Self {
+        self.exit_when_processed = Some(processed);
         self
     }
 

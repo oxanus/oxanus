@@ -121,7 +121,7 @@ async fn setup(jobs_count: u64, sleep_ms: u64) -> Result<(), oxanus::OxanusError
 async fn execute(concurrency: usize, jobs_count: u64) -> Result<(), oxanus::OxanusError> {
     let client =
         redis::Client::open(std::env::var("REDIS_URL").expect("REDIS_URL is not set")).unwrap();
-    let config = build_config(concurrency).exit_when_finished(jobs_count);
+    let config = build_config(concurrency).exit_when_finished();
     let data = oxanus::WorkerState::new(WorkerState {});
 
     let stats = oxanus::run(&client, config, data).await?;
