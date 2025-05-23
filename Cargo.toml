@@ -18,8 +18,10 @@ serde = { version = "^1.0", features = ["derive"] }
 serde_json = { version = "^1.0", features = ["preserve_order"] }
 thiserror = "^2.0"
 tokio = { version = "^1.43", features = ["full"] }
+tokio-util = { version = "^0.7" }
 tracing = { version = "^0.1", features = ["log"] }
-uuid = { version = "^1.16", features = ["serde", "v4"] }
+uuid = { version = "^1.17", features = ["serde", "v4"] }
+signal-hook = { version = "^0.3" }
 
 [dev-dependencies]
 testresult = "^0.4"

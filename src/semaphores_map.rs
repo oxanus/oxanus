@@ -22,4 +22,11 @@ impl SemaphoresMap {
                 .or_insert_with(|| Arc::new(Semaphore::new(self.permits))),
         )
     }
+
+    pub async fn busy_count(&self) -> usize {
+        let map = self.inner.lock().await;
+        map.values()
+            .map(|sem| self.permits - sem.available_permits())
+            .sum()
+    }
 }

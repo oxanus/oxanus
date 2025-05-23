@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use signal_hook::consts::SIGINT;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 #[derive(Debug, thiserror::Error)]
@@ -11,7 +12,9 @@ pub enum WorkerError {
 pub struct WorkerState {}
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Worker {}
+pub struct Worker {
+    sleep_s: u64,
+}
 
 #[async_trait::async_trait]
 impl oxanus::Worker for Worker {
@@ -22,7 +25,7 @@ impl oxanus::Worker for Worker {
         &self,
         oxanus::WorkerState(_conns): &oxanus::WorkerState<WorkerState>,
     ) -> Result<(), WorkerError> {
-        tokio::time::sleep(std::time::Duration::from_millis(20_000)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(self.sleep_s)).await;
         Ok(())
     }
 }
@@ -39,7 +42,7 @@ impl oxanus::Queue for QueueOne {
             kind: oxanus::QueueKind::Static {
                 key: "one".to_string(),
             },
-            concurrency: 1,
+            concurrency: 2,
             throttle: None,
         }
     }
@@ -54,12 +57,16 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
 
     let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL is not set");
     let redis_client = redis::Client::open(redis_url.clone()).expect("Failed to open Redis client");
-    // let redis_manager = redis::aio::ConnectionManager::new(redis_client).await?;
+    let redis_manager = redis::aio::ConnectionManager::new(redis_client.clone()).await?;
     let data = oxanus::WorkerState::new(WorkerState {});
 
     let config = oxanus::Config::new()
         .register_queue::<QueueOne>()
-        .register_worker::<Worker>();
+        .register_worker::<Worker>()
+        .with_graceful_shutdown([SIGINT]);
+
+    oxanus::enqueue(&redis_manager, QueueOne, Worker { sleep_s: 10 }).await?;
+    oxanus::enqueue(&redis_manager, QueueOne, Worker { sleep_s: 5 }).await?;
 
     oxanus::run(&redis_client, config, data).await?;
 

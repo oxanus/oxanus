@@ -4,7 +4,6 @@ use crate::{storage, worker::BoxedWorker};
 
 pub async fn run<DT: Send + Sync + Clone + 'static, ET: std::error::Error + Send + Sync>(
     redis: redis::aio::ConnectionManager,
-    queue: String,
     job_name: String,
     job: BoxedWorker<DT, ET>,
     envelope: JobEnvelope,
@@ -12,7 +11,7 @@ pub async fn run<DT: Send + Sync + Clone + 'static, ET: std::error::Error + Send
 ) -> Result<(), ET> {
     tracing::info!(
         job_id = envelope.id,
-        queue = queue,
+        queue = envelope.job.queue,
         job = job_name,
         "Job started"
     );
@@ -22,7 +21,7 @@ pub async fn run<DT: Send + Sync + Clone + 'static, ET: std::error::Error + Send
     let is_err = result.is_err();
     tracing::info!(
         job_id = envelope.id,
-        queue = queue,
+        queue = envelope.job.queue,
         job = job_name,
         success = !is_err,
         duration = duration.as_millis(),

@@ -1,5 +1,6 @@
 use redis::AsyncCommands;
 use std::{collections::HashMap, num::NonZero};
+use tokio_util::sync::CancellationToken;
 
 use crate::{JobEnvelope, OxanusError};
 
@@ -235,34 +236,53 @@ pub async fn enqueue_scheduled(
     Ok(envelopes_count)
 }
 
-pub async fn retry_loop(redis_client: redis::Client) -> Result<(), OxanusError> {
+pub async fn retry_loop(
+    redis_client: redis::Client,
+    cancel_token: CancellationToken,
+) -> Result<(), OxanusError> {
     tracing::info!("Starting retry loop");
 
     let mut redis_manager = redis::aio::ConnectionManager::new(redis_client).await?;
 
     loop {
-        enqueue_scheduled(&mut redis_manager, RETRY_QUEUE).await?;
+        if cancel_token.is_cancelled() {
+            return Ok(());
+        }
 
+        enqueue_scheduled(&mut redis_manager, RETRY_QUEUE).await?;
         tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
     }
 }
 
-pub async fn schedule_loop(redis_client: redis::Client) -> Result<(), OxanusError> {
+pub async fn schedule_loop(
+    redis_client: redis::Client,
+    cancel_token: CancellationToken,
+) -> Result<(), OxanusError> {
     tracing::info!("Starting schedule loop");
 
     let mut redis_manager = redis::aio::ConnectionManager::new(redis_client).await?;
 
     loop {
-        enqueue_scheduled(&mut redis_manager, SCHEDULE_QUEUE).await?;
+        if cancel_token.is_cancelled() {
+            return Ok(());
+        }
 
+        enqueue_scheduled(&mut redis_manager, SCHEDULE_QUEUE).await?;
         tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
     }
 }
 
-pub async fn ping_loop(redis_client: redis::Client) -> Result<(), OxanusError> {
+pub async fn ping_loop(
+    redis_client: redis::Client,
+    cancel_token: CancellationToken,
+) -> Result<(), OxanusError> {
     let mut redis_manager = redis::aio::ConnectionManager::new(redis_client).await?;
 
     loop {
+        if cancel_token.is_cancelled() {
+            return Ok(());
+        }
+
         ping(&mut redis_manager).await?;
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
@@ -280,12 +300,19 @@ pub async fn ping(redis: &redis::aio::ConnectionManager) -> Result<(), OxanusErr
     Ok(())
 }
 
-pub async fn resurrect_loop(redis_client: redis::Client) -> Result<(), OxanusError> {
+pub async fn resurrect_loop(
+    redis_client: redis::Client,
+    cancel_token: CancellationToken,
+) -> Result<(), OxanusError> {
     tracing::info!("Starting resurrect loop");
 
     let mut redis_manager = redis::aio::ConnectionManager::new(redis_client).await?;
 
     loop {
+        if cancel_token.is_cancelled() {
+            return Ok(());
+        }
+
         resurrect(&mut redis_manager).await?;
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
     }

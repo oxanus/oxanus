@@ -14,4 +14,6 @@ pub enum OxanusError {
     RedisError(#[from] redis::RedisError),
     #[error("Try from int error: {0}")]
     TryFromIntError(#[from] std::num::TryFromIntError),
+    #[error("Std IO error: {0}")]
+    StdIoError(#[from] std::io::Error),
 }
