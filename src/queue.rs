@@ -20,6 +20,38 @@ pub struct QueueConfig {
     pub throttle: Option<QueueThrottle>,
 }
 
+impl QueueConfig {
+    pub fn prefix(prefix: &str) -> Self {
+        Self {
+            kind: QueueKind::Dynamic {
+                prefix: prefix.to_string(),
+            },
+            concurrency: 1,
+            throttle: None,
+        }
+    }
+
+    pub fn key(key: &str) -> Self {
+        Self {
+            kind: QueueKind::Static {
+                key: key.to_string(),
+            },
+            concurrency: 1,
+            throttle: None,
+        }
+    }
+
+    pub fn concurrency(mut self, concurrency: usize) -> Self {
+        self.concurrency = concurrency;
+        self
+    }
+
+    pub fn throttle(mut self, throttle: QueueThrottle) -> Self {
+        self.throttle = Some(throttle);
+        self
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum QueueKind {
     Static { key: String },
