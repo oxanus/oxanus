@@ -82,13 +82,16 @@ impl oxanus::Worker for WorkerInstant2 {
     }
 }
 
+#[derive(Serialize)]
 pub struct QueueOne;
 
+#[derive(Serialize)]
 pub struct QueueTwo(Animal, i32);
 
+#[derive(Serialize)]
 pub struct QueueThrottled;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum Animal {
     Dog,
     Cat,
@@ -96,10 +99,6 @@ pub enum Animal {
 }
 
 impl oxanus::Queue for QueueOne {
-    fn key(&self) -> String {
-        "one".to_string()
-    }
-
     fn to_config() -> oxanus::QueueConfig {
         oxanus::QueueConfig {
             kind: oxanus::QueueKind::Static {
@@ -112,11 +111,6 @@ impl oxanus::Queue for QueueOne {
 }
 
 impl oxanus::Queue for QueueTwo {
-    fn key(&self) -> String {
-        // probably use Display trait here or specific one
-        format!("two:{:?}:{:?}", self.0, self.1)
-    }
-
     fn to_config() -> oxanus::QueueConfig {
         oxanus::QueueConfig {
             kind: oxanus::QueueKind::Dynamic {
@@ -129,10 +123,6 @@ impl oxanus::Queue for QueueTwo {
 }
 
 impl oxanus::Queue for QueueThrottled {
-    fn key(&self) -> String {
-        "throttled".to_string()
-    }
-
     fn to_config() -> oxanus::QueueConfig {
         oxanus::QueueConfig {
             kind: oxanus::QueueKind::Static {

@@ -33,13 +33,10 @@ impl oxanus::Worker for Worker2Sec {
     }
 }
 
+#[derive(Serialize)]
 pub struct QueueOne;
 
 impl oxanus::Queue for QueueOne {
-    fn key(&self) -> String {
-        "one".to_string()
-    }
-
     fn to_config() -> oxanus::QueueConfig {
         oxanus::QueueConfig {
             kind: oxanus::QueueKind::Static {

@@ -1,5 +1,15 @@
-pub trait Queue: Send + Sync {
-    fn key(&self) -> String;
+use serde::Serialize;
+
+pub trait Queue: Send + Sync + Serialize {
+    fn key(&self) -> String {
+        match Self::to_config().kind {
+            QueueKind::Static { key } => key,
+            QueueKind::Dynamic { prefix } => {
+                let value = serde_json::to_value(self).unwrap_or_default();
+                format!("{}:{}", prefix, value_to_queue_key(&value))
+            }
+        }
+    }
     fn to_config() -> QueueConfig;
 }
 
@@ -30,4 +40,23 @@ impl QueueKind {
 pub struct QueueThrottle {
     pub window_ms: u64,
     pub limit: u64,
+}
+
+fn value_to_queue_key(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Null => "".to_string(),
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Array(a) => a
+            .iter()
+            .map(|v| value_to_queue_key(v))
+            .collect::<Vec<String>>()
+            .join(":"),
+        serde_json::Value::Object(object) => object
+            .iter()
+            .map(|(k, v)| format!(":{}={}", k, value_to_queue_key(v)))
+            .collect::<Vec<String>>()
+            .join(":"),
+    }
 }

@@ -18,13 +18,10 @@ pub enum ServiceError {
 #[derive(Debug, Clone)]
 pub struct WorkerState {}
 
+#[derive(Serialize)]
 pub struct QueueOne;
 
 impl oxanus::Queue for QueueOne {
-    fn key(&self) -> String {
-        "one".to_string()
-    }
-
     fn to_config() -> oxanus::QueueConfig {
         oxanus::QueueConfig {
             kind: oxanus::QueueKind::Static {
