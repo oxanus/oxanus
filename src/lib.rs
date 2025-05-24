@@ -84,11 +84,15 @@ where
         }
     }
 
+    tracing::info!("Shutting down");
+
     joinset.join_all().await;
 
     let stats = Arc::try_unwrap(stats)
         .expect("Failed to unwrap Arc - there are still references to stats")
         .into_inner();
+
+    tracing::info!("Gracefully shut down");
 
     Ok(stats)
 }

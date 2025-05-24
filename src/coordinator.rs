@@ -180,15 +180,20 @@ async fn run_queue_watcher(
 }
 
 async fn wait_for_workers_to_finish(semaphores: Arc<SemaphoresMap>) {
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let mut ticks = 0;
 
     loop {
+        ticks += 1;
+
         let busy_count = semaphores.busy_count().await;
         if busy_count == 0 {
             break;
         }
 
-        tracing::info!("Waiting for {} workers to finish", busy_count);
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        if ticks % 200 == 0 {
+            tracing::info!("Waiting for {} workers to finish...", busy_count);
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
 }
