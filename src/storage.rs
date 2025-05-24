@@ -2,7 +2,7 @@ use redis::AsyncCommands;
 use std::{collections::HashMap, num::NonZero};
 use tokio_util::sync::CancellationToken;
 
-use crate::{JobEnvelope, OxanusError};
+use crate::{JobEnvelope, OxanusError, job_envelope::JobId};
 
 pub const SCHEDULE_QUEUE: &str = "oxanus:schedule";
 pub const RETRY_QUEUE: &str = "oxanus:retry";
@@ -15,17 +15,17 @@ const RESURRECT_THRESHOLD_SECS: i64 = 5;
 
 pub async fn enqueue(
     redis: &redis::aio::ConnectionManager,
-    envelope: &JobEnvelope,
-) -> Result<(), OxanusError> {
+    envelope: JobEnvelope,
+) -> Result<JobId, OxanusError> {
     let mut redis = redis.clone();
 
-    if should_skip_job(&mut redis, envelope).await? {
+    if should_skip_job(&mut redis, &envelope).await? {
         tracing::warn!("Unique job {} already exists, skipping", envelope.id);
-        return Ok(());
+        return Ok(envelope.id);
     }
 
     let _: () = redis::pipe()
-        .hset(JOBS_KEY, &envelope.id, serde_json::to_string(envelope)?)
+        .hset(JOBS_KEY, &envelope.id, serde_json::to_string(&envelope)?)
         .hexpire(
             JOBS_KEY,
             JOB_EXPIRE_TIME,
@@ -36,7 +36,7 @@ pub async fn enqueue(
         .query_async(&mut redis)
         .await?;
 
-    Ok(())
+    Ok(envelope.id)
 }
 
 async fn should_skip_job(
@@ -53,14 +53,14 @@ async fn should_skip_job(
 
 pub async fn enqueue_in(
     redis: &redis::aio::ConnectionManager,
-    envelope: &JobEnvelope,
+    envelope: JobEnvelope,
     delay_s: u64,
-) -> Result<(), OxanusError> {
+) -> Result<JobId, OxanusError> {
     let mut redis = redis.clone();
 
-    if should_skip_job(&mut redis, envelope).await? {
+    if should_skip_job(&mut redis, &envelope).await? {
         tracing::warn!("Unique job {} already exists, skipping", envelope.id);
-        return Ok(());
+        return Ok(envelope.id);
     }
 
     let _: () = redis::pipe()
@@ -78,7 +78,8 @@ pub async fn enqueue_in(
         )
         .query_async(&mut redis)
         .await?;
-    Ok(())
+
+    Ok(envelope.id)
 }
 
 pub async fn blocking_dequeue(
@@ -350,7 +351,7 @@ pub async fn resurrect(redis: &mut redis::aio::ConnectionManager) -> Result<(), 
                             job = envelope.job.name,
                             "Resurrecting job"
                         );
-                        enqueue(redis, &envelope).await?;
+                        enqueue(redis, envelope).await?;
                         let _: () = redis.lrem(&processing_queue, 1, &job_id).await?;
                     }
                     None => tracing::warn!("Job {} not found", job_id),

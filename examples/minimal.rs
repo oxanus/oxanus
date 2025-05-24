@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use signal_hook::consts::SIGINT;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 #[derive(Debug, thiserror::Error)]
@@ -63,7 +62,7 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     let config = oxanus::Config::new()
         .register_queue::<QueueOne>()
         .register_worker::<Worker>()
-        .with_graceful_shutdown([SIGINT])
+        .with_graceful_shutdown([oxanus::signals::SIGINT])
         .exit_when_finished();
 
     oxanus::enqueue(&redis_manager, QueueOne, Worker { sleep_s: 10 }).await?;

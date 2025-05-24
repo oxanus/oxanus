@@ -4,9 +4,11 @@ use uuid::Uuid;
 
 use crate::{OxanusError, Worker};
 
+pub type JobId = String;
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct JobEnvelope {
-    pub id: String,
+    pub id: JobId,
     pub job: Job,
     pub meta: JobEnvelopeMeta,
 }

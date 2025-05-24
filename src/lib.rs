@@ -26,11 +26,12 @@ use tokio_util::sync::CancellationToken;
 
 pub use crate::config::Config;
 pub use crate::error::OxanusError;
-pub use crate::job_envelope::{Job, JobEnvelope};
+pub use crate::job_envelope::{Job, JobEnvelope, JobId};
 pub use crate::queue::{Queue, QueueConfig, QueueKind, QueueThrottle};
 use crate::result_collector::Stats;
 pub use crate::worker::Worker;
 pub use crate::worker_state::WorkerState;
+pub use signal_hook::consts as signals;
 
 pub async fn run<DT, ET>(
     redis_client: &redis::Client,
@@ -101,7 +102,7 @@ pub async fn enqueue<T, DT, ET>(
     redis: &redis::aio::ConnectionManager,
     queue: impl Queue,
     job: T,
-) -> Result<(), OxanusError>
+) -> Result<JobId, OxanusError>
 where
     T: Worker<Data = DT, Error = ET> + serde::Serialize,
     DT: Send + Sync + Clone + 'static,
@@ -115,7 +116,7 @@ pub async fn enqueue_in<T, DT, ET>(
     queue: impl Queue,
     job: T,
     delay: u64,
-) -> Result<(), OxanusError>
+) -> Result<JobId, OxanusError>
 where
     T: Worker<Data = DT, Error = ET> + serde::Serialize,
     DT: Send + Sync + Clone + 'static,
@@ -124,8 +125,8 @@ where
     let envelope = JobEnvelope::new(queue.key().clone(), job)?;
 
     if delay > 0 {
-        storage::enqueue_in(redis, &envelope, delay).await
+        storage::enqueue_in(redis, envelope, delay).await
     } else {
-        storage::enqueue(redis, &envelope).await
+        storage::enqueue(redis, envelope).await
     }
 }
