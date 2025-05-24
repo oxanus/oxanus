@@ -10,14 +10,14 @@ use crate::queue::{QueueConfig, QueueThrottle};
 use crate::semaphores_map::SemaphoresMap;
 use crate::storage;
 use crate::throttler::Throttler;
-use crate::worker_event::{WorkerEvent, WorkerEventJob};
+use crate::worker_event::WorkerJob;
 
 pub async fn run(
     redis_client: redis::Client,
     cancel_token: CancellationToken,
     queue_config: QueueConfig,
     queue_key: String,
-    job_tx: mpsc::Sender<WorkerEvent>,
+    job_tx: mpsc::Sender<WorkerJob>,
     semaphores: Arc<SemaphoresMap>,
 ) {
     let mut redis_manager = redis::aio::ConnectionManager::new(redis_client.clone())
@@ -31,7 +31,7 @@ pub async fn run(
         select! {
             result = pop_queue_message(&mut redis_manager, &queue_config, &queue_key) => {
                 let job_id = result.expect("Failed to pop queue message");
-                let job = WorkerEvent::Job(WorkerEventJob { job_id, permit });
+                let job = WorkerJob { job_id, permit };
                 job_tx
                     .send(job)
                     .await

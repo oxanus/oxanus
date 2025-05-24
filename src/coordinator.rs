@@ -10,7 +10,7 @@ use crate::error::OxanusError;
 use crate::job_envelope::JobEnvelope;
 use crate::queue::{QueueConfig, QueueKind};
 use crate::semaphores_map::SemaphoresMap;
-use crate::worker_event::{WorkerEvent, WorkerEventJob};
+use crate::worker_event::WorkerJob;
 use crate::worker_state::WorkerState;
 use crate::{
     dispatcher, executor,
@@ -32,7 +32,7 @@ where
 {
     let concurrency = queue_config.concurrency;
     let (result_tx, result_rx) = mpsc::channel::<Result<(), ET>>(concurrency);
-    let (job_tx, mut job_rx) = mpsc::channel::<WorkerEvent>(concurrency);
+    let (job_tx, mut job_rx) = mpsc::channel::<WorkerJob>(concurrency);
     let semaphores = Arc::new(SemaphoresMap::new(concurrency));
 
     tokio::spawn(result_collector::run(
@@ -57,18 +57,13 @@ where
         select! {
             job = job_rx.recv() => {
                 if let Some(job) = job {
-                    match job {
-                        WorkerEvent::Job(job_event) => {
-                            process_job(
-                                redis_manager.clone(),
-                                config.clone(),
-                                data.clone(),
-                                result_tx.clone(),
-                                job_event,
-                            )
-                            .await;
-                        }
-                    };
+                    tokio::spawn(process_job(
+                        redis_manager.clone(),
+                        config.clone(),
+                        data.clone(),
+                        result_tx.clone(),
+                        job,
+                    ));
                 }
             }
             _ = cancel_token.cancelled() => {
@@ -87,7 +82,7 @@ async fn process_job<DT, ET>(
     config: Arc<Config<DT, ET>>,
     data: WorkerState<DT>,
     result_tx: mpsc::Sender<Result<(), ET>>,
-    job_event: WorkerEventJob,
+    job_event: WorkerJob,
 ) where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
@@ -116,23 +111,19 @@ async fn process_job<DT, ET>(
         }
     };
 
-    tokio::spawn({
-        let data = data.clone();
-        let result_tx = result_tx.clone();
-        let redis_manager = redis_manager.clone();
-        async move {
-            let result = executor::run(redis_manager.clone(), job, envelope, data).await;
-            drop(job_event.permit);
-            result_tx.send(result).await.ok();
-        }
-    });
+    let data = data.clone();
+    let result_tx = result_tx.clone();
+    let redis_manager = redis_manager.clone();
+    let result = executor::run(redis_manager.clone(), job, envelope, data).await;
+    drop(job_event.permit);
+    result_tx.send(result).await.ok();
 }
 
 async fn run_queue_watcher(
     redis_client: redis::Client,
     cancel_token: CancellationToken,
     queue_config: QueueConfig,
-    job_tx: mpsc::Sender<WorkerEvent>,
+    job_tx: mpsc::Sender<WorkerJob>,
     semaphores: Arc<SemaphoresMap>,
 ) {
     let mut tracked_queues = HashSet::new();
