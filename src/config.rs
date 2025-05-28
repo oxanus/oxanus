@@ -1,7 +1,6 @@
 use signal_hook::consts::{SIGINT, SIGTERM};
 use tokio_util::sync::CancellationToken;
 
-use crate::OxanusError;
 use crate::queue::{Queue, QueueConfig};
 use crate::storage::Storage;
 use crate::worker::Worker;
@@ -15,14 +14,12 @@ pub struct Config<DT, ET> {
     pub exit_when_processed: Option<u64>,
     pub shutdown_signals: Vec<i32>,
     pub cancel_token: CancellationToken,
-    pub redis_client: redis::Client,
     pub storage: Storage,
 }
 
 impl<DT, ET> Config<DT, ET> {
     pub fn new(redis_client: redis::Client) -> Self {
         Self {
-            redis_client: redis_client.clone(),
             registry: WorkerRegistry::new(),
             queues: Vec::new(),
             exit_when_finished: false,
@@ -67,15 +64,5 @@ impl<DT, ET> Config<DT, ET> {
     pub fn with_graceful_shutdown(mut self, signals: impl IntoIterator<Item = i32>) -> Self {
         self.shutdown_signals = signals.into_iter().collect();
         self
-    }
-
-    pub async fn build_redis_manager(&self) -> redis::aio::ConnectionManager {
-        redis::aio::ConnectionManager::new(self.redis_client.clone())
-            .await
-            .expect("Failed to connect to Redis")
-    }
-
-    pub async fn redis_client(&self) -> Result<redis::Client, OxanusError> {
-        Ok(self.redis_client.clone())
     }
 }

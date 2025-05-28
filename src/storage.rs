@@ -1,5 +1,8 @@
 use redis::AsyncCommands;
-use std::{collections::HashMap, num::NonZero};
+use std::{
+    collections::{HashMap, HashSet},
+    num::NonZero,
+};
 use tokio_util::sync::CancellationToken;
 
 use crate::{JobEnvelope, OxanusError, job_envelope::JobId};
@@ -25,6 +28,12 @@ impl Storage {
 
     pub async fn redis_manager(&self) -> Result<redis::aio::ConnectionManager, OxanusError> {
         Ok(redis::aio::ConnectionManager::new(self.redis_client.clone()).await?)
+    }
+
+    pub async fn keys(&self, pattern: &str) -> Result<HashSet<String>, OxanusError> {
+        let mut redis = self.redis_manager().await?;
+        let keys: Vec<String> = redis.keys(pattern).await?;
+        Ok(keys.into_iter().collect())
     }
 
     pub async fn enqueue(&self, envelope: JobEnvelope) -> Result<JobId, OxanusError> {

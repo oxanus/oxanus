@@ -1,4 +1,3 @@
-use redis::AsyncCommands;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::select;
@@ -119,13 +118,12 @@ async fn run_queue_watcher<DT, ET>(
 {
     let mut tracked_queues = HashSet::new();
 
-    let mut redis_manager = config.build_redis_manager().await;
-
     loop {
         let all_queues: HashSet<String> = match &queue_config.kind {
             QueueKind::Static { key } => HashSet::from([key.clone()]),
             QueueKind::Dynamic { prefix } => {
-                redis_manager.keys(format!("{}*", prefix)).await.unwrap()
+                config.storage.keys(&format!("{}*", prefix)).await.unwrap()
+                // redis_manager.keys(format!("{}*", prefix)).await.unwrap()
             }
         };
         let new_queues: HashSet<String> = all_queues.difference(&tracked_queues).cloned().collect();
