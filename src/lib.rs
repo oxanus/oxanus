@@ -34,7 +34,6 @@ pub use crate::worker_state::WorkerState;
 pub use signal_hook::consts as signals;
 
 pub async fn run<DT, ET>(
-    redis_client: &redis::Client,
     config: Config<DT, ET>,
     data: WorkerState<DT>,
 ) -> Result<Stats, OxanusError>
@@ -47,28 +46,15 @@ where
     let stats = Arc::new(Mutex::new(Stats::default()));
     let cancel_token = CancellationToken::new();
 
-    tokio::spawn(storage::retry_loop(
-        redis_client.clone(),
-        cancel_token.clone(),
-    ));
-    tokio::spawn(storage::schedule_loop(
-        redis_client.clone(),
-        cancel_token.clone(),
-    ));
-    tokio::spawn(storage::ping_loop(
-        redis_client.clone(),
-        cancel_token.clone(),
-    ));
-    tokio::spawn(storage::resurrect_loop(
-        redis_client.clone(),
-        cancel_token.clone(),
-    ));
+    tokio::spawn(retry_loop(config.clone(), cancel_token.clone()));
+    tokio::spawn(schedule_loop(config.clone(), cancel_token.clone()));
+    tokio::spawn(ping_loop(config.clone(), cancel_token.clone()));
+    tokio::spawn(resurrect_loop(config.clone(), cancel_token.clone()));
 
     for queue_config in &config.queues {
         joinset.spawn(coordinator::run(
-            redis_client.clone(),
-            cancel_token.clone(),
             config.clone(),
+            cancel_token.clone(),
             stats.clone(),
             data.clone(),
             queue_config.clone(),
@@ -98,8 +84,52 @@ where
     Ok(stats)
 }
 
+async fn retry_loop<DT, ET>(
+    config: Arc<Config<DT, ET>>,
+    cancel_token: CancellationToken,
+) -> Result<(), OxanusError>
+where
+    DT: Send + Sync + Clone + 'static,
+    ET: std::error::Error + Send + Sync + 'static,
+{
+    config.storage.retry_loop(cancel_token).await
+}
+
+async fn schedule_loop<DT, ET>(
+    config: Arc<Config<DT, ET>>,
+    cancel_token: CancellationToken,
+) -> Result<(), OxanusError>
+where
+    DT: Send + Sync + Clone + 'static,
+    ET: std::error::Error + Send + Sync + 'static,
+{
+    config.storage.schedule_loop(cancel_token).await
+}
+
+async fn ping_loop<DT, ET>(
+    config: Arc<Config<DT, ET>>,
+    cancel_token: CancellationToken,
+) -> Result<(), OxanusError>
+where
+    DT: Send + Sync + Clone + 'static,
+    ET: std::error::Error + Send + Sync + 'static,
+{
+    config.storage.ping_loop(cancel_token).await
+}
+
+async fn resurrect_loop<DT, ET>(
+    config: Arc<Config<DT, ET>>,
+    cancel_token: CancellationToken,
+) -> Result<(), OxanusError>
+where
+    DT: Send + Sync + Clone + 'static,
+    ET: std::error::Error + Send + Sync + 'static,
+{
+    config.storage.resurrect_loop(cancel_token).await
+}
+
 pub async fn enqueue<T, DT, ET>(
-    redis: &redis::aio::ConnectionManager,
+    config: &Config<DT, ET>,
     queue: impl Queue,
     job: T,
 ) -> Result<JobId, OxanusError>
@@ -108,11 +138,11 @@ where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
-    enqueue_in(redis, queue, job, 0).await
+    enqueue_in(config, queue, job, 0).await
 }
 
 pub async fn enqueue_in<T, DT, ET>(
-    redis: &redis::aio::ConnectionManager,
+    config: &Config<DT, ET>,
     queue: impl Queue,
     job: T,
     delay: u64,
@@ -125,8 +155,8 @@ where
     let envelope = JobEnvelope::new(queue.key().clone(), job)?;
 
     if delay > 0 {
-        storage::enqueue_in(redis, envelope, delay).await
+        config.storage.enqueue_in(envelope, delay).await
     } else {
-        storage::enqueue(redis, envelope).await
+        config.storage.enqueue(envelope).await
     }
 }

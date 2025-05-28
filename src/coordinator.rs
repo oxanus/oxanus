@@ -15,13 +15,11 @@ use crate::worker_state::WorkerState;
 use crate::{
     dispatcher, executor,
     result_collector::{self, Stats},
-    storage,
 };
 
 pub async fn run<DT, ET>(
-    redis_client: redis::Client,
-    cancel_token: CancellationToken,
     config: Arc<Config<DT, ET>>,
+    cancel_token: CancellationToken,
     stats: Arc<Mutex<Stats>>,
     data: WorkerState<DT>,
     queue_config: QueueConfig,
@@ -42,23 +40,18 @@ where
         stats.clone(),
     ));
     tokio::spawn(run_queue_watcher(
-        redis_client.clone(),
+        config.clone(),
         cancel_token.clone(),
         queue_config.clone(),
         job_tx.clone(),
         semaphores.clone(),
     ));
 
-    let redis_manager = redis::aio::ConnectionManager::new(redis_client.clone())
-        .await
-        .expect("Failed to connect to Redis");
-
     loop {
         select! {
             job = job_rx.recv() => {
                 if let Some(job) = job {
                     tokio::spawn(process_job(
-                        redis_manager.clone(),
                         config.clone(),
                         data.clone(),
                         result_tx.clone(),
@@ -78,7 +71,6 @@ where
 }
 
 async fn process_job<DT, ET>(
-    redis_manager: redis::aio::ConnectionManager,
     config: Arc<Config<DT, ET>>,
     data: WorkerState<DT>,
     result_tx: mpsc::Sender<Result<(), ET>>,
@@ -87,7 +79,7 @@ async fn process_job<DT, ET>(
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
-    let envelope: JobEnvelope = match storage::get(&redis_manager, &job_event.job_id).await {
+    let envelope: JobEnvelope = match config.storage.get(&job_event.job_id).await {
         Ok(Some(envelope)) => envelope,
         Ok(None) => {
             tracing::warn!("Job {} not found", job_event.job_id);
@@ -113,24 +105,26 @@ async fn process_job<DT, ET>(
 
     let data = data.clone();
     let result_tx = result_tx.clone();
-    let redis_manager = redis_manager.clone();
-    let result = executor::run(redis_manager.clone(), job, envelope, data).await;
+    let result = executor::run(config, job, envelope, data)
+        .await
+        .expect("Failed to run job");
     drop(job_event.permit);
     result_tx.send(result).await.ok();
 }
 
-async fn run_queue_watcher(
-    redis_client: redis::Client,
+async fn run_queue_watcher<DT, ET>(
+    config: Arc<Config<DT, ET>>,
     cancel_token: CancellationToken,
     queue_config: QueueConfig,
     job_tx: mpsc::Sender<WorkerJob>,
     semaphores: Arc<SemaphoresMap>,
-) {
+) where
+    DT: Send + Sync + Clone + 'static,
+    ET: std::error::Error + Send + Sync + 'static,
+{
     let mut tracked_queues = HashSet::new();
 
-    let mut redis_manager = redis::aio::ConnectionManager::new(redis_client.clone())
-        .await
-        .expect("Failed to connect to Redis");
+    let mut redis_manager = config.build_redis_manager().await;
 
     loop {
         let all_queues: HashSet<String> = match &queue_config.kind {
@@ -149,7 +143,7 @@ async fn run_queue_watcher(
             );
 
             tokio::spawn(dispatcher::run(
-                redis_client.clone(),
+                config.clone(),
                 cancel_token.clone(),
                 queue_config.clone(),
                 queue.clone(),

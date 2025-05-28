@@ -57,19 +57,17 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
 
     let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL is not set");
     let redis_client = redis::Client::open(redis_url.clone()).expect("Failed to open Redis client");
-    let redis_manager = redis::aio::ConnectionManager::new(redis_client).await?;
     let data = oxanus::WorkerState::new(WorkerState {});
 
-    let config = oxanus::Config::new()
+    let config = oxanus::Config::new(redis_client.clone())
         .register_queue::<QueueOne>()
         .register_worker::<Worker2Sec>();
 
-    oxanus::enqueue(&redis_manager, QueueOne, Worker2Sec { id: 1 }).await?;
-    oxanus::enqueue(&redis_manager, QueueOne, Worker2Sec { id: 1 }).await?;
-    oxanus::enqueue(&redis_manager, QueueOne, Worker2Sec { id: 2 }).await?;
+    oxanus::enqueue(&config, QueueOne, Worker2Sec { id: 1 }).await?;
+    oxanus::enqueue(&config, QueueOne, Worker2Sec { id: 1 }).await?;
+    oxanus::enqueue(&config, QueueOne, Worker2Sec { id: 2 }).await?;
 
-    let client = redis::Client::open(redis_url).expect("Failed to open Redis client");
-    oxanus::run(&client, config, data).await?;
+    oxanus::run(config, data).await?;
 
     Ok(())
 }

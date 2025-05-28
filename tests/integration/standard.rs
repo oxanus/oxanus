@@ -13,7 +13,7 @@ pub async fn main() -> TestResult {
         redis: redis_manager.clone(),
     });
 
-    let config = oxanus::Config::new()
+    let config = oxanus::Config::new(redis_client.clone())
         .register_queue::<QueueOne>()
         .register_worker::<WorkerRedisSet>()
         .exit_when_processed(1);
@@ -22,7 +22,7 @@ pub async fn main() -> TestResult {
     let random_value = uuid::Uuid::new_v4().to_string();
 
     oxanus::enqueue(
-        &redis_manager,
+        &config,
         QueueOne,
         WorkerRedisSet {
             key: random_key.clone(),
@@ -31,7 +31,7 @@ pub async fn main() -> TestResult {
     )
     .await?;
 
-    oxanus::run(&redis_client, config, data).await?;
+    oxanus::run(config, data).await?;
 
     let value: Option<String> = redis_manager.get(random_key).await?;
 

@@ -145,10 +145,9 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
 
     let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL is not set");
     let redis_client = redis::Client::open(redis_url.clone()).expect("Failed to open Redis client");
-    let redis_manager = redis::aio::ConnectionManager::new(redis_client).await?;
     let data = oxanus::WorkerState::new(WorkerState {});
 
-    let config = oxanus::Config::new()
+    let config = oxanus::Config::new(redis_client)
         .register_queue::<QueueOne>()
         .register_queue::<QueueTwo>()
         .register_queue::<QueueThrottled>()
@@ -159,7 +158,7 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
         .exit_when_processed(13);
 
     oxanus::enqueue(
-        &redis_manager,
+        &config,
         QueueOne,
         Worker1Sec {
             id: 1,
@@ -168,13 +167,13 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     )
     .await?;
     oxanus::enqueue(
-        &redis_manager,
+        &config,
         QueueTwo(Animal::Dog, 1),
         Worker2Sec { id: 2, foo: 42 },
     )
     .await?;
     oxanus::enqueue(
-        &redis_manager,
+        &config,
         QueueOne,
         Worker1Sec {
             id: 3,
@@ -183,13 +182,13 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     )
     .await?;
     oxanus::enqueue(
-        &redis_manager,
+        &config,
         QueueTwo(Animal::Cat, 2),
         Worker2Sec { id: 4, foo: 44 },
     )
     .await?;
     oxanus::enqueue_in(
-        &redis_manager,
+        &config,
         QueueOne,
         Worker1Sec {
             id: 4,
@@ -199,28 +198,27 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     )
     .await?;
     oxanus::enqueue_in(
-        &redis_manager,
+        &config,
         QueueTwo(Animal::Bird, 7),
         Worker2Sec { id: 5, foo: 44 },
         6,
     )
     .await?;
     oxanus::enqueue_in(
-        &redis_manager,
+        &config,
         QueueTwo(Animal::Bird, 7),
         Worker2Sec { id: 5, foo: 44 },
         15,
     )
     .await?;
-    oxanus::enqueue(&redis_manager, QueueThrottled, WorkerInstant {}).await?;
-    oxanus::enqueue(&redis_manager, QueueThrottled, WorkerInstant2 {}).await?;
-    oxanus::enqueue(&redis_manager, QueueThrottled, WorkerInstant {}).await?;
-    oxanus::enqueue(&redis_manager, QueueThrottled, WorkerInstant2 {}).await?;
-    oxanus::enqueue(&redis_manager, QueueThrottled, WorkerInstant {}).await?;
-    oxanus::enqueue(&redis_manager, QueueThrottled, WorkerInstant2 {}).await?;
+    oxanus::enqueue(&config, QueueThrottled, WorkerInstant {}).await?;
+    oxanus::enqueue(&config, QueueThrottled, WorkerInstant2 {}).await?;
+    oxanus::enqueue(&config, QueueThrottled, WorkerInstant {}).await?;
+    oxanus::enqueue(&config, QueueThrottled, WorkerInstant2 {}).await?;
+    oxanus::enqueue(&config, QueueThrottled, WorkerInstant {}).await?;
+    oxanus::enqueue(&config, QueueThrottled, WorkerInstant2 {}).await?;
 
-    let client = redis::Client::open(redis_url).expect("Failed to open Redis client");
-    oxanus::run(&client, config, data).await?;
+    oxanus::run(config, data).await?;
 
     Ok(())
 }

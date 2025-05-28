@@ -1,13 +1,16 @@
+use std::sync::Arc;
+
 use crate::job_envelope::JobEnvelope;
+use crate::worker::BoxedWorker;
 use crate::worker_state::WorkerState;
-use crate::{storage, worker::BoxedWorker};
+use crate::{Config, OxanusError};
 
 pub async fn run<DT, ET>(
-    redis: redis::aio::ConnectionManager,
+    config: Arc<Config<DT, ET>>,
     worker: BoxedWorker<DT, ET>,
     envelope: JobEnvelope,
     data: WorkerState<DT>,
-) -> Result<(), ET>
+) -> Result<Result<(), ET>, OxanusError>
 where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
@@ -36,23 +39,31 @@ where
 
     if is_err {
         if envelope.meta.retries < max_retries {
-            storage::finish_with_failure(&redis, &envelope)
+            config
+                .storage
+                .finish_with_failure(&envelope)
                 .await
                 .expect("Failed to finish job");
-            storage::retry_in(&redis, envelope, retry_delay)
+            config
+                .storage
+                .retry_in(envelope, retry_delay)
                 .await
                 .expect("Failed to retry job");
         } else {
             tracing::error!("Job {} failed after {} retries", envelope.id, max_retries);
-            storage::kill(&redis, &envelope)
+            config
+                .storage
+                .kill(&envelope)
                 .await
                 .expect("Failed to kill job");
         }
     } else {
-        storage::finish_with_success(&redis, &envelope)
+        config
+            .storage
+            .finish_with_success(&envelope)
             .await
             .expect("Failed to finish job");
     }
 
-    result
+    Ok(result)
 }

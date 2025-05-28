@@ -1,25 +1,32 @@
 use signal_hook::consts::{SIGINT, SIGTERM};
 
+use crate::OxanusError;
 use crate::queue::{Queue, QueueConfig};
+use crate::storage::Storage;
 use crate::worker::Worker;
 use crate::worker_registry::WorkerRegistry;
 
+#[derive(Clone)]
 pub struct Config<DT, ET> {
     pub registry: WorkerRegistry<DT, ET>,
     pub queues: Vec<QueueConfig>,
     pub exit_when_finished: bool,
     pub exit_when_processed: Option<u64>,
     pub shutdown_signals: Vec<i32>,
+    pub redis_client: redis::Client,
+    pub storage: Storage,
 }
 
 impl<DT, ET> Config<DT, ET> {
-    pub fn new() -> Self {
+    pub fn new(redis_client: redis::Client) -> Self {
         Self {
+            redis_client: redis_client.clone(),
             registry: WorkerRegistry::new(),
             queues: Vec::new(),
             exit_when_finished: false,
             exit_when_processed: None,
             shutdown_signals: vec![SIGINT, SIGTERM],
+            storage: Storage::new(redis_client),
         }
     }
 
@@ -49,11 +56,6 @@ impl<DT, ET> Config<DT, ET> {
         self
     }
 
-    pub fn exit_when_finished(mut self) -> Self {
-        self.exit_when_finished = true;
-        self
-    }
-
     pub fn exit_when_processed(mut self, processed: u64) -> Self {
         self.exit_when_processed = Some(processed);
         self
@@ -63,10 +65,14 @@ impl<DT, ET> Config<DT, ET> {
         self.shutdown_signals = signals.into_iter().collect();
         self
     }
-}
 
-impl<DT, ET> Default for Config<DT, ET> {
-    fn default() -> Self {
-        Self::new()
+    pub async fn build_redis_manager(&self) -> redis::aio::ConnectionManager {
+        redis::aio::ConnectionManager::new(self.redis_client.clone())
+            .await
+            .expect("Failed to connect to Redis")
+    }
+
+    pub async fn redis_client(&self) -> Result<redis::Client, OxanusError> {
+        Ok(self.redis_client.clone())
     }
 }
