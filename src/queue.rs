@@ -31,6 +31,10 @@ impl QueueConfig {
         }
     }
 
+    pub fn dynamic(prefix: &str) -> Self {
+        Self::prefix(prefix)
+    }
+
     pub fn key(key: &str) -> Self {
         Self {
             kind: QueueKind::Static {

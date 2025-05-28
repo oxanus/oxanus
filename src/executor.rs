@@ -36,6 +36,9 @@ where
 
     if is_err {
         if envelope.meta.retries < max_retries {
+            storage::finish_with_failure(&redis, &envelope)
+                .await
+                .expect("Failed to finish job");
             storage::retry_in(&redis, envelope, retry_delay)
                 .await
                 .expect("Failed to retry job");
@@ -46,7 +49,7 @@ where
                 .expect("Failed to kill job");
         }
     } else {
-        storage::finish(&redis, &envelope)
+        storage::finish_with_success(&redis, &envelope)
             .await
             .expect("Failed to finish job");
     }

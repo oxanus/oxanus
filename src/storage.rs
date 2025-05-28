@@ -122,6 +122,12 @@ pub async fn retry_in(
     delay_s: u64,
 ) -> Result<(), OxanusError> {
     let updated_envelope = envelope.with_retries_incremented();
+
+    if delay_s == 0 {
+        enqueue(redis, updated_envelope).await?;
+        return Ok(());
+    }
+
     let mut redis = redis.clone();
     let _: () = redis::pipe()
         .hset(
@@ -186,13 +192,25 @@ pub async fn kill(
     Ok(())
 }
 
-pub async fn finish(
+pub async fn finish_with_success(
     redis: &redis::aio::ConnectionManager,
     envelope: &JobEnvelope,
 ) -> Result<(), OxanusError> {
     let mut redis = redis.clone();
     let _: () = redis::pipe()
         .hdel(JOBS_KEY, &envelope.id)
+        .lrem(current_processing_queue(), 1, &envelope.id)
+        .query_async(&mut redis)
+        .await?;
+    Ok(())
+}
+
+pub async fn finish_with_failure(
+    redis: &redis::aio::ConnectionManager,
+    envelope: &JobEnvelope,
+) -> Result<(), OxanusError> {
+    let mut redis = redis.clone();
+    let _: () = redis::pipe()
         .lrem(current_processing_queue(), 1, &envelope.id)
         .query_async(&mut redis)
         .await?;
