@@ -22,7 +22,6 @@ use signal_hook_tokio::Signals;
 use std::sync::Arc;
 use tokio::select;
 use tokio::sync::Mutex;
-use tokio_util::sync::CancellationToken;
 
 pub use crate::config::Config;
 pub use crate::error::OxanusError;
@@ -44,17 +43,15 @@ where
     let config = Arc::new(config);
     let mut joinset = tokio::task::JoinSet::new();
     let stats = Arc::new(Mutex::new(Stats::default()));
-    let cancel_token = CancellationToken::new();
 
-    tokio::spawn(retry_loop(config.clone(), cancel_token.clone()));
-    tokio::spawn(schedule_loop(config.clone(), cancel_token.clone()));
-    tokio::spawn(ping_loop(config.clone(), cancel_token.clone()));
-    tokio::spawn(resurrect_loop(config.clone(), cancel_token.clone()));
+    tokio::spawn(retry_loop(config.clone()));
+    tokio::spawn(schedule_loop(config.clone()));
+    tokio::spawn(ping_loop(config.clone()));
+    tokio::spawn(resurrect_loop(config.clone()));
 
     for queue_config in &config.queues {
         joinset.spawn(coordinator::run(
             config.clone(),
-            cancel_token.clone(),
             stats.clone(),
             data.clone(),
             queue_config.clone(),
@@ -64,10 +61,10 @@ where
     let mut signals = Signals::new(config.shutdown_signals.clone())?;
 
     select! {
-        _ = cancel_token.cancelled() => {}
+        _ = config.cancel_token.cancelled() => {}
         sig = signals.next() => {
             println!("Received signal {:?}", sig);
-            cancel_token.cancel();
+            config.cancel_token.cancel();
         }
     }
 
@@ -84,48 +81,42 @@ where
     Ok(stats)
 }
 
-async fn retry_loop<DT, ET>(
-    config: Arc<Config<DT, ET>>,
-    cancel_token: CancellationToken,
-) -> Result<(), OxanusError>
+async fn retry_loop<DT, ET>(config: Arc<Config<DT, ET>>) -> Result<(), OxanusError>
 where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
-    config.storage.retry_loop(cancel_token).await
+    config.storage.retry_loop(config.cancel_token.clone()).await
 }
 
-async fn schedule_loop<DT, ET>(
-    config: Arc<Config<DT, ET>>,
-    cancel_token: CancellationToken,
-) -> Result<(), OxanusError>
+async fn schedule_loop<DT, ET>(config: Arc<Config<DT, ET>>) -> Result<(), OxanusError>
 where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
-    config.storage.schedule_loop(cancel_token).await
+    config
+        .storage
+        .schedule_loop(config.cancel_token.clone())
+        .await
 }
 
-async fn ping_loop<DT, ET>(
-    config: Arc<Config<DT, ET>>,
-    cancel_token: CancellationToken,
-) -> Result<(), OxanusError>
+async fn ping_loop<DT, ET>(config: Arc<Config<DT, ET>>) -> Result<(), OxanusError>
 where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
-    config.storage.ping_loop(cancel_token).await
+    config.storage.ping_loop(config.cancel_token.clone()).await
 }
 
-async fn resurrect_loop<DT, ET>(
-    config: Arc<Config<DT, ET>>,
-    cancel_token: CancellationToken,
-) -> Result<(), OxanusError>
+async fn resurrect_loop<DT, ET>(config: Arc<Config<DT, ET>>) -> Result<(), OxanusError>
 where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
-    config.storage.resurrect_loop(cancel_token).await
+    config
+        .storage
+        .resurrect_loop(config.cancel_token.clone())
+        .await
 }
 
 pub async fn enqueue<T, DT, ET>(

@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use tokio::select;
 use tokio::sync::{Mutex, mpsc};
-use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
 
@@ -14,7 +13,6 @@ pub struct Stats {
 
 pub async fn run<DT, ET>(
     mut rx: mpsc::Receiver<Result<(), ET>>,
-    cancel_token: CancellationToken,
     config: Arc<Config<DT, ET>>,
     stats: Arc<Mutex<Stats>>,
 ) where
@@ -25,11 +23,11 @@ pub async fn run<DT, ET>(
         select! {
             result = rx.recv() => {
                 match result {
-                    Some(result) => update_stats(cancel_token.clone(), stats.clone(), result, config.clone()).await,
+                    Some(result) => update_stats(config.clone(), stats.clone(), result).await,
                     None => break,
                 }
             }
-            _ = cancel_token.cancelled() => {
+            _ = config.cancel_token.cancelled() => {
                 break;
             }
         }
@@ -37,10 +35,9 @@ pub async fn run<DT, ET>(
 }
 
 async fn update_stats<DT, ET>(
-    cancel_token: CancellationToken,
+    config: Arc<Config<DT, ET>>,
     stats: Arc<Mutex<Stats>>,
     result: Result<(), ET>,
-    config: Arc<Config<DT, ET>>,
 ) where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
@@ -57,12 +54,12 @@ async fn update_stats<DT, ET>(
     };
 
     if config.exit_when_finished {
-        cancel_token.cancel();
+        config.cancel_token.cancel();
     }
 
     if let Some(exit_when_processed) = config.exit_when_processed {
         if processed >= exit_when_processed {
-            cancel_token.cancel();
+            config.cancel_token.cancel();
         }
     }
 }

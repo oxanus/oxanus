@@ -3,7 +3,6 @@ use std::time::Duration;
 use tokio::select;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
-use tokio_util::sync::CancellationToken;
 
 use crate::Config;
 use crate::error::OxanusError;
@@ -15,7 +14,6 @@ use crate::worker_event::WorkerJob;
 
 pub async fn run<DT, ET>(
     config: Arc<Config<DT, ET>>,
-    cancel_token: CancellationToken,
     queue_config: QueueConfig,
     queue_key: String,
     job_tx: mpsc::Sender<WorkerJob>,
@@ -37,7 +35,7 @@ pub async fn run<DT, ET>(
                     .await
                     .expect("Failed to send job to worker");
             }
-            _ = cancel_token.cancelled() => {
+            _ = config.cancel_token.cancelled() => {
                 tracing::debug!("Stopping dispatcher for queue {}", queue_key);
                 drop(permit);
                 break;

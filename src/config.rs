@@ -1,4 +1,5 @@
 use signal_hook::consts::{SIGINT, SIGTERM};
+use tokio_util::sync::CancellationToken;
 
 use crate::OxanusError;
 use crate::queue::{Queue, QueueConfig};
@@ -13,6 +14,7 @@ pub struct Config<DT, ET> {
     pub exit_when_finished: bool,
     pub exit_when_processed: Option<u64>,
     pub shutdown_signals: Vec<i32>,
+    pub cancel_token: CancellationToken,
     pub redis_client: redis::Client,
     pub storage: Storage,
 }
@@ -26,6 +28,7 @@ impl<DT, ET> Config<DT, ET> {
             exit_when_finished: false,
             exit_when_processed: None,
             shutdown_signals: vec![SIGINT, SIGTERM],
+            cancel_token: CancellationToken::new(),
             storage: Storage::new(redis_client),
         }
     }

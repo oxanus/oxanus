@@ -3,7 +3,6 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::select;
 use tokio::sync::{Mutex, mpsc};
-use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
 use crate::error::OxanusError;
@@ -19,7 +18,6 @@ use crate::{
 
 pub async fn run<DT, ET>(
     config: Arc<Config<DT, ET>>,
-    cancel_token: CancellationToken,
     stats: Arc<Mutex<Stats>>,
     data: WorkerState<DT>,
     queue_config: QueueConfig,
@@ -35,13 +33,11 @@ where
 
     tokio::spawn(result_collector::run(
         result_rx,
-        cancel_token.clone(),
         config.clone(),
         stats.clone(),
     ));
     tokio::spawn(run_queue_watcher(
         config.clone(),
-        cancel_token.clone(),
         queue_config.clone(),
         job_tx.clone(),
         semaphores.clone(),
@@ -59,7 +55,7 @@ where
                     ));
                 }
             }
-            _ = cancel_token.cancelled() => {
+            _ = config.cancel_token.cancelled() => {
                 break;
             }
         }
@@ -114,7 +110,6 @@ async fn process_job<DT, ET>(
 
 async fn run_queue_watcher<DT, ET>(
     config: Arc<Config<DT, ET>>,
-    cancel_token: CancellationToken,
     queue_config: QueueConfig,
     job_tx: mpsc::Sender<WorkerJob>,
     semaphores: Arc<SemaphoresMap>,
@@ -144,7 +139,6 @@ async fn run_queue_watcher<DT, ET>(
 
             tokio::spawn(dispatcher::run(
                 config.clone(),
-                cancel_token.clone(),
                 queue_config.clone(),
                 queue.clone(),
                 job_tx.clone(),
@@ -154,7 +148,7 @@ async fn run_queue_watcher<DT, ET>(
             tracked_queues.insert(queue);
         }
 
-        if cancel_token.is_cancelled() {
+        if config.cancel_token.is_cancelled() {
             break;
         } else if queue_config.kind.is_dynamic() {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
