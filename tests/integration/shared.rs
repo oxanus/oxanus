@@ -1,3 +1,4 @@
+use rand::distr::{Alphanumeric, SampleString};
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
@@ -51,5 +52,10 @@ pub fn setup() {
     tracing_subscriber::registry()
         .with(fmt::layer())
         .with(EnvFilter::from_default_env())
-        .init();
+        .try_init()
+        .ok();
+}
+
+pub fn random_string() -> String {
+    Alphanumeric.sample_string(&mut rand::rng(), 16)
 }

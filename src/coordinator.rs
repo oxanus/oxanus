@@ -121,10 +121,11 @@ async fn run_queue_watcher<DT, ET>(
     loop {
         let all_queues: HashSet<String> = match &queue_config.kind {
             QueueKind::Static { key } => HashSet::from([key.clone()]),
-            QueueKind::Dynamic { prefix } => {
-                config.storage.keys(&format!("{}*", prefix)).await.unwrap()
-                // redis_manager.keys(format!("{}*", prefix)).await.unwrap()
-            }
+            QueueKind::Dynamic { prefix } => config
+                .storage
+                .queues(&format!("{}*", prefix))
+                .await
+                .unwrap(),
         };
         let new_queues: HashSet<String> = all_queues.difference(&tracked_queues).cloned().collect();
 

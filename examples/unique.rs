@@ -59,7 +59,8 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     let redis_client = redis::Client::open(redis_url.clone()).expect("Failed to open Redis client");
     let data = oxanus::WorkerState::new(WorkerState {});
 
-    let config = oxanus::Config::new(redis_client.clone())
+    let storage = oxanus::Storage::new(redis_client);
+    let config = oxanus::Config::new(storage)
         .register_queue::<QueueOne>()
         .register_worker::<Worker2Sec>();
 

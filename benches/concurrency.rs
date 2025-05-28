@@ -145,7 +145,8 @@ fn build_config(
     redis_client: redis::Client,
     concurrency: usize,
 ) -> oxanus::Config<WorkerState, ServiceError> {
-    oxanus::Config::new(redis_client)
+    let storage = oxanus::Storage::new(redis_client);
+    oxanus::Config::new(storage)
         .register_queue_with_concurrency::<QueueOne>(concurrency)
         .register_worker::<WorkerNoop>()
 }

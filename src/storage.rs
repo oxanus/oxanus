@@ -7,30 +7,63 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{JobEnvelope, OxanusError, job_envelope::JobId};
 
-pub const SCHEDULE_QUEUE: &str = "oxanus:schedule";
-pub const RETRY_QUEUE: &str = "oxanus:retry";
-pub const PROCESSING_QUEUE_PREFIX: &str = "oxanus:processing";
-const PROCESSES_KEY: &str = "oxanus:processes";
-const JOBS_KEY: &str = "oxanus:jobs";
-const DEAD_QUEUE: &str = "oxanus:dead";
 const JOB_EXPIRE_TIME: i64 = 7 * 24 * 3600; // 7 days
 const RESURRECT_THRESHOLD_SECS: i64 = 5;
 
 #[derive(Clone)]
 pub struct Storage {
     redis_client: redis::Client,
+    keys: StorageKeys,
+}
+
+#[derive(Clone)]
+struct StorageKeys {
+    jobs: String,
+    dead: String,
+    schedule: String,
+    retry: String,
+    processing_queue_prefix: String,
+    processes: String,
+}
+
+impl StorageKeys {
+    pub fn new(namespace: impl Into<String>) -> Self {
+        let namespace = namespace.into();
+        let namespace = if namespace.is_empty() {
+            "oxanus".to_string()
+        } else {
+            format!("oxanus:{namespace}")
+        };
+
+        Self {
+            jobs: format!("{namespace}:jobs"),
+            dead: format!("{namespace}:dead"),
+            schedule: format!("{namespace}:schedule"),
+            retry: format!("{namespace}:retry"),
+            processing_queue_prefix: format!("{namespace}:processing:"),
+            processes: format!("{namespace}:processes"),
+        }
+    }
 }
 
 impl Storage {
     pub fn new(redis_client: redis::Client) -> Self {
-        Self { redis_client }
+        Self {
+            redis_client,
+            keys: StorageKeys::new(""),
+        }
+    }
+
+    pub fn namespace(mut self, namespace: impl Into<String>) -> Self {
+        self.keys = StorageKeys::new(namespace);
+        self
     }
 
     pub async fn redis_manager(&self) -> Result<redis::aio::ConnectionManager, OxanusError> {
         Ok(redis::aio::ConnectionManager::new(self.redis_client.clone()).await?)
     }
 
-    pub async fn keys(&self, pattern: &str) -> Result<HashSet<String>, OxanusError> {
+    pub async fn queues(&self, pattern: &str) -> Result<HashSet<String>, OxanusError> {
         let mut redis = self.redis_manager().await?;
         let keys: Vec<String> = redis.keys(pattern).await?;
         Ok(keys.into_iter().collect())
@@ -45,9 +78,13 @@ impl Storage {
         }
 
         let _: () = redis::pipe()
-            .hset(JOBS_KEY, &envelope.id, serde_json::to_string(&envelope)?)
+            .hset(
+                &self.keys.jobs,
+                &envelope.id,
+                serde_json::to_string(&envelope)?,
+            )
             .hexpire(
-                JOBS_KEY,
+                &self.keys.jobs,
                 JOB_EXPIRE_TIME,
                 redis::ExpireOption::NONE,
                 &envelope.id,
@@ -68,7 +105,7 @@ impl Storage {
             return Ok(false);
         }
 
-        let exists: bool = redis.hexists(JOBS_KEY, &envelope.id).await?;
+        let exists: bool = redis.hexists(&self.keys.jobs, &envelope.id).await?;
         Ok(exists)
     }
 
@@ -85,15 +122,19 @@ impl Storage {
         }
 
         let _: () = redis::pipe()
-            .hset(JOBS_KEY, &envelope.id, serde_json::to_string(&envelope)?)
+            .hset(
+                &self.keys.jobs,
+                &envelope.id,
+                serde_json::to_string(&envelope)?,
+            )
             .hexpire(
-                JOBS_KEY,
+                &self.keys.jobs,
                 JOB_EXPIRE_TIME,
                 redis::ExpireOption::NONE,
                 &envelope.id,
             )
             .zadd(
-                SCHEDULE_QUEUE,
+                &self.keys.schedule,
                 &envelope.id,
                 envelope.job.created_at + delay_s * 1_000_000,
             )
@@ -114,18 +155,18 @@ impl Storage {
         let mut redis = self.redis_manager().await?;
         let _: () = redis::pipe()
             .hset(
-                JOBS_KEY,
+                &self.keys.jobs,
                 &updated_envelope.id,
                 serde_json::to_string(&updated_envelope)?,
             )
             .hexpire(
-                JOBS_KEY,
+                &self.keys.jobs,
                 JOB_EXPIRE_TIME,
                 redis::ExpireOption::NONE,
                 &updated_envelope.id,
             )
             .zadd(
-                RETRY_QUEUE,
+                &self.keys.retry,
                 updated_envelope.id,
                 updated_envelope.job.created_at + delay_s * 1_000_000,
             )
@@ -167,7 +208,7 @@ impl Storage {
 
     pub async fn get(&self, id: &str) -> Result<Option<JobEnvelope>, OxanusError> {
         let mut redis = self.redis_manager().await?;
-        let envelope: Option<String> = redis.hget(JOBS_KEY, id).await?;
+        let envelope: Option<String> = redis.hget(&self.keys.jobs, id).await?;
         match envelope {
             Some(envelope) => Ok(Some(serde_json::from_str(&envelope)?)),
             None => Ok(None),
@@ -177,7 +218,7 @@ impl Storage {
     pub async fn get_many(&self, ids: &[String]) -> Result<Vec<JobEnvelope>, OxanusError> {
         let mut redis = self.redis_manager().await?;
         let mut cmd = redis::cmd("HMGET");
-        cmd.arg(JOBS_KEY);
+        cmd.arg(&self.keys.jobs);
         cmd.arg(ids);
         let envelopes_str: Vec<String> = cmd.query_async(&mut redis).await?;
         let mut envelopes: Vec<JobEnvelope> = vec![];
@@ -190,8 +231,8 @@ impl Storage {
     pub async fn kill(&self, envelope: &JobEnvelope) -> Result<(), OxanusError> {
         let mut redis = self.redis_manager().await?;
         let _: () = redis::pipe()
-            .hdel(JOBS_KEY, &envelope.id)
-            .lpush(DEAD_QUEUE, &serde_json::to_string(envelope)?)
+            .hdel(&self.keys.jobs, &envelope.id)
+            .lpush(&self.keys.dead, &serde_json::to_string(envelope)?)
             .query_async(&mut redis)
             .await?;
         Ok(())
@@ -200,7 +241,7 @@ impl Storage {
     pub async fn finish_with_success(&self, envelope: &JobEnvelope) -> Result<(), OxanusError> {
         let mut redis = self.redis_manager().await?;
         let _: () = redis::pipe()
-            .hdel(JOBS_KEY, &envelope.id)
+            .hdel(&self.keys.jobs, &envelope.id)
             .lrem(self.current_processing_queue(), 1, &envelope.id)
             .query_async(&mut redis)
             .await?;
@@ -264,7 +305,7 @@ impl Storage {
                 return Ok(());
             }
 
-            self.enqueue_scheduled(&mut redis_manager, RETRY_QUEUE)
+            self.enqueue_scheduled(&mut redis_manager, &self.keys.retry)
                 .await?;
             tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
         }
@@ -280,7 +321,7 @@ impl Storage {
                 return Ok(());
             }
 
-            self.enqueue_scheduled(&mut redis_manager, SCHEDULE_QUEUE)
+            self.enqueue_scheduled(&mut redis_manager, &self.keys.schedule)
                 .await?;
             tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
         }
@@ -302,7 +343,7 @@ impl Storage {
     pub async fn ping(&self, redis: &mut redis::aio::ConnectionManager) -> Result<(), OxanusError> {
         let _: () = redis
             .zadd(
-                PROCESSES_KEY,
+                &self.keys.processes,
                 self.current_process_id(),
                 chrono::Utc::now().timestamp(),
             )
@@ -331,7 +372,7 @@ impl Storage {
     ) -> Result<(), OxanusError> {
         let processes: Vec<String> = redis
             .zrangebyscore(
-                PROCESSES_KEY,
+                &self.keys.processes,
                 0,
                 chrono::Utc::now().timestamp() - RESURRECT_THRESHOLD_SECS,
             )
@@ -368,18 +409,22 @@ impl Storage {
                 }
             }
 
-            let _: () = redis.zrem(PROCESSES_KEY, &process_id).await?;
+            let _: () = redis.zrem(&self.keys.processes, &process_id).await?;
         }
 
         Ok(())
     }
 
     fn processing_queue(&self, process_id: &str) -> String {
-        format!("{}:{}", PROCESSING_QUEUE_PREFIX, process_id)
+        format!("{}:{}", self.keys.processing_queue_prefix, process_id)
     }
 
     fn current_processing_queue(&self) -> String {
-        format!("{}:{}", PROCESSING_QUEUE_PREFIX, self.current_process_id())
+        format!(
+            "{}:{}",
+            self.keys.processing_queue_prefix,
+            self.current_process_id()
+        )
     }
 
     fn current_process_id(&self) -> String {

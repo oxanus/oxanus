@@ -13,7 +13,8 @@ pub async fn main() -> TestResult {
         redis: redis_manager.clone(),
     });
 
-    let config = oxanus::Config::new(redis_client.clone())
+    let storage = oxanus::Storage::new(redis_client).namespace(random_string());
+    let config = oxanus::Config::new(storage)
         .register_queue::<QueueOne>()
         .register_worker::<WorkerRedisSet>()
         .exit_when_processed(1);

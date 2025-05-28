@@ -10,7 +10,6 @@ use crate::worker_registry::WorkerRegistry;
 pub struct Config<DT, ET> {
     pub registry: WorkerRegistry<DT, ET>,
     pub queues: Vec<QueueConfig>,
-    pub exit_when_finished: bool,
     pub exit_when_processed: Option<u64>,
     pub shutdown_signals: Vec<i32>,
     pub cancel_token: CancellationToken,
@@ -18,15 +17,14 @@ pub struct Config<DT, ET> {
 }
 
 impl<DT, ET> Config<DT, ET> {
-    pub fn new(redis_client: redis::Client) -> Self {
+    pub fn new(storage: Storage) -> Self {
         Self {
             registry: WorkerRegistry::new(),
             queues: Vec::new(),
-            exit_when_finished: false,
             exit_when_processed: None,
             shutdown_signals: vec![SIGINT, SIGTERM],
             cancel_token: CancellationToken::new(),
-            storage: Storage::new(redis_client),
+            storage,
         }
     }
 

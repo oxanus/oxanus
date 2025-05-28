@@ -53,10 +53,6 @@ async fn update_stats<DT, ET>(
         stats.processed
     };
 
-    if config.exit_when_finished {
-        config.cancel_token.cancel();
-    }
-
     if let Some(exit_when_processed) = config.exit_when_processed {
         if processed >= exit_when_processed {
             config.cancel_token.cancel();
