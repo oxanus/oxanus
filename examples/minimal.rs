@@ -56,10 +56,12 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     let data = oxanus::WorkerState::new(WorkerState {});
 
     let storage = oxanus::Storage::new(redis_client);
+    let signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+        .expect("Failed to create SIGINT signal handler");
     let config = oxanus::Config::new(storage)
         .register_queue::<QueueOne>()
         .register_worker::<Worker>()
-        .with_graceful_shutdown([oxanus::signals::SIGINT])
+        .with_graceful_shutdown(async { signal.recv().await.unwrap() })
         .exit_when_processed(1);
 
     oxanus::enqueue(&config, QueueOne, Worker { sleep_s: 10 }).await?;

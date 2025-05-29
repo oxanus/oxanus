@@ -5,8 +5,8 @@ use crate::worker::BoxedWorker;
 use crate::worker_state::WorkerState;
 use crate::{Config, OxanusError};
 
-pub async fn run<DT, ET>(
-    config: Arc<Config<DT, ET>>,
+pub async fn run<DT, ET, SH>(
+    config: Arc<Config<DT, ET, SH>>,
     worker: BoxedWorker<DT, ET>,
     envelope: JobEnvelope,
     data: WorkerState<DT>,

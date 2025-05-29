@@ -12,8 +12,8 @@ use crate::storage::Storage;
 use crate::throttler::Throttler;
 use crate::worker_event::WorkerJob;
 
-pub async fn run<DT, ET>(
-    config: Arc<Config<DT, ET>>,
+pub async fn run<DT, ET, SH>(
+    config: Arc<Config<DT, ET, SH>>,
     queue_config: QueueConfig,
     queue_key: String,
     job_tx: mpsc::Sender<WorkerJob>,

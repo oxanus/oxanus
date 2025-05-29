@@ -15,8 +15,8 @@ use crate::{
     result_collector::{self, Stats},
 };
 
-pub async fn run<DT, ET>(
-    config: Arc<Config<DT, ET>>,
+pub async fn run<DT, ET, SH>(
+    config: Arc<Config<DT, ET, SH>>,
     stats: Arc<Mutex<Stats>>,
     data: WorkerState<DT>,
     queue_config: QueueConfig,
@@ -24,6 +24,7 @@ pub async fn run<DT, ET>(
 where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
+    SH: Send + Sync + 'static,
 {
     let concurrency = queue_config.concurrency;
     let (result_tx, result_rx) = mpsc::channel::<Result<(), ET>>(concurrency);
@@ -65,8 +66,8 @@ where
     Ok(())
 }
 
-async fn process_job<DT, ET>(
-    config: Arc<Config<DT, ET>>,
+async fn process_job<DT, ET, SH>(
+    config: Arc<Config<DT, ET, SH>>,
     data: WorkerState<DT>,
     result_tx: mpsc::Sender<Result<(), ET>>,
     job_event: WorkerJob,
@@ -107,14 +108,15 @@ async fn process_job<DT, ET>(
     result_tx.send(result).await.ok();
 }
 
-async fn run_queue_watcher<DT, ET>(
-    config: Arc<Config<DT, ET>>,
+async fn run_queue_watcher<DT, ET, SH>(
+    config: Arc<Config<DT, ET, SH>>,
     queue_config: QueueConfig,
     job_tx: mpsc::Sender<WorkerJob>,
     semaphores: Arc<SemaphoresMap>,
 ) where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
+    SH: Send + Sync + 'static,
 {
     let mut tracked_queues = HashSet::new();
 

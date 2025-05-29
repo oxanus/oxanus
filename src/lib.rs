@@ -17,8 +17,6 @@ mod worker_state;
 #[cfg(test)]
 mod test_helper;
 
-use futures::stream::StreamExt;
-use signal_hook_tokio::Signals;
 use std::sync::Arc;
 use tokio::select;
 use tokio::sync::Mutex;
@@ -33,14 +31,16 @@ pub use crate::worker::Worker;
 pub use crate::worker_state::WorkerState;
 pub use signal_hook::consts as signals;
 
-pub async fn run<DT, ET>(
-    config: Config<DT, ET>,
+pub async fn run<DT, ET, SH>(
+    mut config: Config<DT, ET, SH>,
     data: WorkerState<DT>,
 ) -> Result<Stats, OxanusError>
 where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
+    SH: Future<Output = ()> + Send + Sync + 'static,
 {
+    let shutdown_signal = config.shutdown_signal.take();
     let config = Arc::new(config);
     let mut joinset = tokio::task::JoinSet::new();
     let stats = Arc::new(Mutex::new(Stats::default()));
@@ -59,12 +59,9 @@ where
         ));
     }
 
-    let mut signals = Signals::new(config.shutdown_signals.clone())?;
-
     select! {
         _ = config.cancel_token.cancelled() => {}
-        sig = signals.next() => {
-            println!("Received signal {:?}", sig);
+        _ = async { shutdown_signal.unwrap().await }, if shutdown_signal.is_some() => {
             config.cancel_token.cancel();
         }
     }
@@ -82,7 +79,7 @@ where
     Ok(stats)
 }
 
-async fn retry_loop<DT, ET>(config: Arc<Config<DT, ET>>) -> Result<(), OxanusError>
+async fn retry_loop<DT, ET, SH>(config: Arc<Config<DT, ET, SH>>) -> Result<(), OxanusError>
 where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
@@ -90,7 +87,7 @@ where
     config.storage.retry_loop(config.cancel_token.clone()).await
 }
 
-async fn schedule_loop<DT, ET>(config: Arc<Config<DT, ET>>) -> Result<(), OxanusError>
+async fn schedule_loop<DT, ET, SH>(config: Arc<Config<DT, ET, SH>>) -> Result<(), OxanusError>
 where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
@@ -101,7 +98,7 @@ where
         .await
 }
 
-async fn ping_loop<DT, ET>(config: Arc<Config<DT, ET>>) -> Result<(), OxanusError>
+async fn ping_loop<DT, ET, SH>(config: Arc<Config<DT, ET, SH>>) -> Result<(), OxanusError>
 where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
@@ -109,7 +106,7 @@ where
     config.storage.ping_loop(config.cancel_token.clone()).await
 }
 
-async fn resurrect_loop<DT, ET>(config: Arc<Config<DT, ET>>) -> Result<(), OxanusError>
+async fn resurrect_loop<DT, ET, SH>(config: Arc<Config<DT, ET, SH>>) -> Result<(), OxanusError>
 where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
@@ -120,8 +117,8 @@ where
         .await
 }
 
-pub async fn enqueue<T, DT, ET>(
-    config: &Config<DT, ET>,
+pub async fn enqueue<T, DT, ET, SH>(
+    config: &Config<DT, ET, SH>,
     queue: impl Queue,
     job: T,
 ) -> Result<JobId, OxanusError>
@@ -133,8 +130,8 @@ where
     enqueue_in(config, queue, job, 0).await
 }
 
-pub async fn enqueue_in<T, DT, ET>(
-    config: &Config<DT, ET>,
+pub async fn enqueue_in<T, DT, ET, SH>(
+    config: &Config<DT, ET, SH>,
     queue: impl Queue,
     job: T,
     delay: u64,

@@ -1,4 +1,3 @@
-use signal_hook::consts::{SIGINT, SIGTERM};
 use tokio_util::sync::CancellationToken;
 
 use crate::queue::{Queue, QueueConfig};
@@ -7,22 +6,22 @@ use crate::worker::Worker;
 use crate::worker_registry::WorkerRegistry;
 
 #[derive(Clone)]
-pub struct Config<DT, ET> {
+pub struct Config<DT, ET, SH> {
     pub registry: WorkerRegistry<DT, ET>,
     pub queues: Vec<QueueConfig>,
     pub exit_when_processed: Option<u64>,
-    pub shutdown_signals: Vec<i32>,
+    pub shutdown_signal: Option<SH>,
     pub cancel_token: CancellationToken,
     pub storage: Storage,
 }
 
-impl<DT, ET> Config<DT, ET> {
+impl<DT, ET, SH> Config<DT, ET, SH> {
     pub fn new(storage: Storage) -> Self {
         Self {
             registry: WorkerRegistry::new(),
             queues: Vec::new(),
             exit_when_processed: None,
-            shutdown_signals: vec![SIGINT, SIGTERM],
+            shutdown_signal: None,
             cancel_token: CancellationToken::new(),
             storage,
         }
@@ -59,8 +58,11 @@ impl<DT, ET> Config<DT, ET> {
         self
     }
 
-    pub fn with_graceful_shutdown(mut self, signals: impl IntoIterator<Item = i32>) -> Self {
-        self.shutdown_signals = signals.into_iter().collect();
+    pub fn with_graceful_shutdown(mut self, signal: SH) -> Self
+    where
+        SH: Future<Output = ()> + Send + 'static,
+    {
+        self.shutdown_signal = Some(signal);
         self
     }
 }

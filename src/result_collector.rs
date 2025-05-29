@@ -11,9 +11,9 @@ pub struct Stats {
     pub failed: u64,
 }
 
-pub async fn run<DT, ET>(
+pub async fn run<DT, ET, SH>(
     mut rx: mpsc::Receiver<Result<(), ET>>,
-    config: Arc<Config<DT, ET>>,
+    config: Arc<Config<DT, ET, SH>>,
     stats: Arc<Mutex<Stats>>,
 ) where
     DT: Send + Sync + Clone + 'static,
@@ -34,8 +34,8 @@ pub async fn run<DT, ET>(
     }
 }
 
-async fn update_stats<DT, ET>(
-    config: Arc<Config<DT, ET>>,
+async fn update_stats<DT, ET, SH>(
+    config: Arc<Config<DT, ET, SH>>,
     stats: Arc<Mutex<Stats>>,
     result: Result<(), ET>,
 ) where
