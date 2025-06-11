@@ -136,7 +136,7 @@ impl Storage {
             .zadd(
                 &self.keys.schedule,
                 &envelope.id,
-                envelope.job.created_at + delay_s * 1_000_000,
+                envelope.meta.created_at + delay_s * 1_000_000,
             )
             .query_async(&mut redis)
             .await?;
@@ -168,7 +168,7 @@ impl Storage {
             .zadd(
                 &self.keys.retry,
                 updated_envelope.id,
-                updated_envelope.job.created_at + delay_s * 1_000_000,
+                updated_envelope.meta.created_at + delay_s * 1_000_000,
             )
             .query_async(&mut redis)
             .await?;

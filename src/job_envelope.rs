@@ -10,7 +10,7 @@ pub type JobId = String;
 pub struct JobEnvelope {
     pub id: JobId,
     pub job: Job,
-    pub meta: JobEnvelopeMeta,
+    pub meta: JobMeta,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -18,19 +18,19 @@ pub struct Job {
     pub name: String,
     pub queue: String,
     pub args: serde_json::Value,
-    pub created_at: u64,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct JobEnvelopeMeta {
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct JobMeta {
     pub retries: u32,
     pub unique: bool,
+    pub created_at: u64,
 }
 
 impl JobEnvelope {
     pub fn new<T, DT, ET>(queue: String, job: T) -> Result<Self, OxanusError>
     where
-        T: Worker<Data = DT, Error = ET> + serde::Serialize,
+        T: Worker<Context = DT, Error = ET> + serde::Serialize,
         DT: Send + Sync + Clone + 'static,
         ET: std::error::Error + Send + Sync + 'static,
     {
@@ -43,9 +43,12 @@ impl JobEnvelope {
                 name: type_name::<T>().to_string(),
                 queue,
                 args: serde_json::to_value(&job)?,
+            },
+            meta: JobMeta {
+                retries: 0,
+                unique,
                 created_at: u64::try_from(chrono::Utc::now().timestamp_micros())?,
             },
-            meta: JobEnvelopeMeta { retries: 0, unique },
         })
     }
 
@@ -53,9 +56,10 @@ impl JobEnvelope {
         Self {
             id: self.id,
             job: self.job,
-            meta: JobEnvelopeMeta {
+            meta: JobMeta {
                 retries: self.meta.retries + 1,
                 unique: self.meta.unique,
+                created_at: self.meta.created_at,
             },
         }
     }

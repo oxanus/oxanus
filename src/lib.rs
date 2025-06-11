@@ -10,9 +10,9 @@ mod semaphores_map;
 mod storage;
 mod throttler;
 mod worker;
+mod worker_context;
 mod worker_event;
 mod worker_registry;
-mod worker_state;
 
 #[cfg(test)]
 mod test_helper;
@@ -27,11 +27,11 @@ pub use crate::queue::{Queue, QueueConfig, QueueKind, QueueThrottle};
 pub use crate::result_collector::Stats;
 pub use crate::storage::Storage;
 pub use crate::worker::Worker;
-pub use crate::worker_state::WorkerState;
+pub use crate::worker_context::{WorkerContext, WorkerContextValue};
 
 pub async fn run<DT, ET>(
     config: Config<DT, ET>,
-    data: WorkerState<DT>,
+    ctx: WorkerContextValue<DT>,
 ) -> Result<Stats, OxanusError>
 where
     DT: Send + Sync + Clone + 'static,
@@ -52,7 +52,7 @@ where
         joinset.spawn(coordinator::run(
             config.clone(),
             stats.clone(),
-            data.clone(),
+            ctx.clone(),
             queue_config.clone(),
         ));
     }
@@ -121,7 +121,7 @@ pub async fn enqueue<T, DT, ET>(
     job: T,
 ) -> Result<JobId, OxanusError>
 where
-    T: Worker<Data = DT, Error = ET> + serde::Serialize,
+    T: Worker<Context = DT, Error = ET> + serde::Serialize,
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
@@ -135,7 +135,7 @@ pub async fn enqueue_in<T, DT, ET>(
     delay: u64,
 ) -> Result<JobId, OxanusError>
 where
-    T: Worker<Data = DT, Error = ET> + serde::Serialize,
+    T: Worker<Context = DT, Error = ET> + serde::Serialize,
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {

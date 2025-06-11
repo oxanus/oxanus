@@ -24,14 +24,14 @@ pub struct WorkerRedisSet {
 
 #[async_trait::async_trait]
 impl oxanus::Worker for WorkerRedisSet {
-    type Data = WorkerState;
+    type Context = WorkerState;
     type Error = WorkerError;
 
     async fn process(
         &self,
-        oxanus::WorkerState(conns): &oxanus::WorkerState<WorkerState>,
+        oxanus::WorkerContext { ctx, .. }: &oxanus::WorkerContext<WorkerState>,
     ) -> Result<(), WorkerError> {
-        let mut redis = conns.redis.clone();
+        let mut redis = ctx.redis.clone();
         let _: () = redis.set_ex(&self.key, self.value.clone(), 3).await?;
         Ok(())
     }

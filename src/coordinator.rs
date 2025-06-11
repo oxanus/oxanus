@@ -2,13 +2,13 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 
+use crate::WorkerContextValue;
 use crate::config::Config;
 use crate::error::OxanusError;
 use crate::job_envelope::JobEnvelope;
 use crate::queue::{QueueConfig, QueueKind};
 use crate::semaphores_map::SemaphoresMap;
 use crate::worker_event::WorkerJob;
-use crate::worker_state::WorkerState;
 use crate::{
     dispatcher, executor,
     result_collector::{self, Stats},
@@ -17,7 +17,7 @@ use crate::{
 pub async fn run<DT, ET>(
     config: Arc<Config<DT, ET>>,
     stats: Arc<Mutex<Stats>>,
-    data: WorkerState<DT>,
+    ctx: WorkerContextValue<DT>,
     queue_config: QueueConfig,
 ) -> Result<(), OxanusError>
 where
@@ -47,7 +47,7 @@ where
                 if let Some(job) = job {
                     tokio::spawn(process_job(
                         config.clone(),
-                        data.clone(),
+                        ctx.clone(),
                         result_tx.clone(),
                         job,
                     ));
@@ -66,7 +66,7 @@ where
 
 async fn process_job<DT, ET>(
     config: Arc<Config<DT, ET>>,
-    data: WorkerState<DT>,
+    ctx: WorkerContextValue<DT>,
     result_tx: mpsc::Sender<Result<(), ET>>,
     job_event: WorkerJob,
 ) where
@@ -97,9 +97,8 @@ async fn process_job<DT, ET>(
         }
     };
 
-    let data = data.clone();
     let result_tx = result_tx.clone();
-    let result = executor::run(config, job, envelope, data)
+    let result = executor::run(config, job, envelope, ctx.clone())
         .await
         .expect("Failed to run job");
     drop(job_event.permit);

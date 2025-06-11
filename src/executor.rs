@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use crate::job_envelope::JobEnvelope;
 use crate::worker::BoxedWorker;
-use crate::worker_state::WorkerState;
-use crate::{Config, OxanusError};
+use crate::worker_context::WorkerContextValue;
+use crate::{Config, OxanusError, WorkerContext};
 
 pub async fn run<DT, ET>(
     config: Arc<Config<DT, ET>>,
     worker: BoxedWorker<DT, ET>,
     envelope: JobEnvelope,
-    data: WorkerState<DT>,
+    ctx: WorkerContextValue<DT>,
 ) -> Result<Result<(), ET>, OxanusError>
 where
     DT: Send + Sync + Clone + 'static,
@@ -22,7 +22,11 @@ where
         "Job started"
     );
     let start = std::time::Instant::now();
-    let result = worker.process(&data).await;
+    let full_ctx = WorkerContext {
+        ctx: ctx.0,
+        meta: envelope.meta.clone(),
+    };
+    let result = worker.process(&full_ctx).await;
     let duration = start.elapsed();
     let is_err = result.is_err();
     tracing::info!(

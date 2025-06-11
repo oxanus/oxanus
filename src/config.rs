@@ -48,7 +48,7 @@ impl<DT, ET> Config<DT, ET> {
 
     pub fn register_worker<T>(mut self) -> Self
     where
-        T: Worker<Data = DT, Error = ET> + serde::de::DeserializeOwned + 'static,
+        T: Worker<Context = DT, Error = ET> + serde::de::DeserializeOwned + 'static,
     {
         self.registry.register::<T>();
         self

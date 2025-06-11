@@ -38,12 +38,12 @@ const CONCURRENCY: &[usize] = &[1, 2, 4, 8, 12, 16, 512];
 
 #[async_trait::async_trait]
 impl oxanus::Worker for WorkerNoop {
-    type Data = WorkerState;
+    type Context = WorkerState;
     type Error = ServiceError;
 
     async fn process(
         &self,
-        oxanus::WorkerState(_conns): &oxanus::WorkerState<WorkerState>,
+        oxanus::WorkerContext { .. }: &oxanus::WorkerContext<WorkerState>,
     ) -> Result<(), ServiceError> {
         tokio::time::sleep(std::time::Duration::from_millis(self.sleep_ms)).await;
         Ok(())
@@ -130,9 +130,9 @@ async fn execute(concurrency: usize, jobs_count: u64) -> Result<(), oxanus::Oxan
     let client =
         redis::Client::open(std::env::var("REDIS_URL").expect("REDIS_URL is not set")).unwrap();
     let config = build_config(client, concurrency).exit_when_processed(jobs_count);
-    let data = oxanus::WorkerState::new(WorkerState {});
+    let ctx = oxanus::WorkerContextValue::new(WorkerState {});
 
-    let stats = oxanus::run(config, data).await?;
+    let stats = oxanus::run(config, ctx).await?;
 
     assert_eq!(stats.processed, jobs_count);
     assert_eq!(stats.succeeded, jobs_count);

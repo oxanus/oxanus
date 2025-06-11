@@ -9,7 +9,7 @@ pub async fn main() -> TestResult {
     let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL is not set");
     let redis_client = redis::Client::open(redis_url.clone()).expect("Failed to open Redis client");
     let mut redis_manager = redis::aio::ConnectionManager::new(redis_client.clone()).await?;
-    let data = oxanus::WorkerState::new(WorkerState {
+    let ctx = oxanus::WorkerContextValue::new(WorkerState {
         redis: redis_manager.clone(),
     });
 
@@ -32,7 +32,7 @@ pub async fn main() -> TestResult {
     )
     .await?;
 
-    oxanus::run(config, data).await?;
+    oxanus::run(config, ctx).await?;
 
     let value: Option<String> = redis_manager.get(random_key).await?;
 

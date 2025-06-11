@@ -17,12 +17,12 @@ pub struct Worker2Sec {
 
 #[async_trait::async_trait]
 impl oxanus::Worker for Worker2Sec {
-    type Data = WorkerState;
+    type Context = WorkerState;
     type Error = WorkerError;
 
     async fn process(
         &self,
-        oxanus::WorkerState(_conns): &oxanus::WorkerState<WorkerState>,
+        oxanus::WorkerContext { .. }: &oxanus::WorkerContext<WorkerState>,
     ) -> Result<(), WorkerError> {
         tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
         Ok(())
@@ -57,7 +57,7 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
 
     let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL is not set");
     let redis_client = redis::Client::open(redis_url.clone()).expect("Failed to open Redis client");
-    let data = oxanus::WorkerState::new(WorkerState {});
+    let ctx = oxanus::WorkerContextValue::new(WorkerState {});
 
     let storage = oxanus::Storage::new(redis_client);
     let config = oxanus::Config::new(storage)
@@ -68,7 +68,7 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     oxanus::enqueue(&config, QueueOne, Worker2Sec { id: 1 }).await?;
     oxanus::enqueue(&config, QueueOne, Worker2Sec { id: 2 }).await?;
 
-    oxanus::run(config, data).await?;
+    oxanus::run(config, ctx).await?;
 
     Ok(())
 }

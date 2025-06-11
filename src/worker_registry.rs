@@ -3,7 +3,7 @@ use std::{any::type_name, collections::HashMap};
 use crate::error::OxanusError;
 use crate::worker::Worker;
 
-type BoxedJob<DT, ET> = Box<dyn Worker<Data = DT, Error = ET>>;
+type BoxedJob<DT, ET> = Box<dyn Worker<Context = DT, Error = ET>>;
 type JobFactory<DT, ET> = fn(serde_json::Value) -> Result<BoxedJob<DT, ET>, OxanusError>;
 
 #[derive(Clone)]
@@ -20,10 +20,10 @@ impl<DT, ET> WorkerRegistry<DT, ET> {
 
     pub fn register<T>(&mut self) -> &mut Self
     where
-        T: Worker<Data = DT, Error = ET> + serde::de::DeserializeOwned + 'static,
+        T: Worker<Context = DT, Error = ET> + serde::de::DeserializeOwned + 'static,
     {
         fn factory<
-            T: Worker<Data = DT, Error = ET> + serde::de::DeserializeOwned + 'static,
+            T: Worker<Context = DT, Error = ET> + serde::de::DeserializeOwned + 'static,
             DT,
             ET,
         >(

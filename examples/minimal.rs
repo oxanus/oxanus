@@ -11,18 +11,18 @@ pub enum WorkerError {
 pub struct WorkerState {}
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Worker {
+pub struct TestWorker {
     sleep_s: u64,
 }
 
 #[async_trait::async_trait]
-impl oxanus::Worker for Worker {
-    type Data = WorkerState;
+impl oxanus::Worker for TestWorker {
+    type Context = WorkerState;
     type Error = WorkerError;
 
     async fn process(
         &self,
-        oxanus::WorkerState(_conns): &oxanus::WorkerState<WorkerState>,
+        oxanus::WorkerContext { .. }: &oxanus::WorkerContext<WorkerState>,
     ) -> Result<(), WorkerError> {
         tokio::time::sleep(std::time::Duration::from_secs(self.sleep_s)).await;
         Ok(())
@@ -53,19 +53,19 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
 
     let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL is not set");
     let redis_client = redis::Client::open(redis_url.clone()).expect("Failed to open Redis client");
-    let data = oxanus::WorkerState::new(WorkerState {});
+    let ctx = oxanus::WorkerContextValue::new(WorkerState {});
 
     let storage = oxanus::Storage::new(redis_client);
     let config = oxanus::Config::new(storage)
         .register_queue::<QueueOne>()
-        .register_worker::<Worker>()
+        .register_worker::<TestWorker>()
         .with_graceful_shutdown(tokio::signal::ctrl_c())
         .exit_when_processed(1);
 
-    oxanus::enqueue(&config, QueueOne, Worker { sleep_s: 10 }).await?;
-    oxanus::enqueue(&config, QueueOne, Worker { sleep_s: 5 }).await?;
+    oxanus::enqueue(&config, QueueOne, TestWorker { sleep_s: 10 }).await?;
+    oxanus::enqueue(&config, QueueOne, TestWorker { sleep_s: 5 }).await?;
 
-    oxanus::run(config, data).await?;
+    oxanus::run(config, ctx).await?;
 
     Ok(())
 }
