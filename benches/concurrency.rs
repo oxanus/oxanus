@@ -120,7 +120,7 @@ async fn setup(
     sleep_ms: u64,
 ) -> Result<(), oxanus::OxanusError> {
     for _ in 0..jobs_count {
-        oxanus::enqueue(&config, QueueOne, WorkerNoop { sleep_ms }).await?;
+        oxanus::enqueue(&config.storage, QueueOne, WorkerNoop { sleep_ms }).await?;
     }
 
     Ok(())

@@ -56,14 +56,14 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     let ctx = oxanus::WorkerContextValue::new(WorkerState {});
 
     let storage = oxanus::Storage::new(redis_client);
-    let config = oxanus::Config::new(storage)
+    let config = oxanus::Config::new(storage.clone())
         .register_queue::<QueueOne>()
         .register_worker::<TestWorker>()
         .with_graceful_shutdown(tokio::signal::ctrl_c())
         .exit_when_processed(1);
 
-    oxanus::enqueue(&config, QueueOne, TestWorker { sleep_s: 10 }).await?;
-    oxanus::enqueue(&config, QueueOne, TestWorker { sleep_s: 5 }).await?;
+    oxanus::enqueue(&storage, QueueOne, TestWorker { sleep_s: 10 }).await?;
+    oxanus::enqueue(&storage, QueueOne, TestWorker { sleep_s: 5 }).await?;
 
     oxanus::run(config, ctx).await?;
 

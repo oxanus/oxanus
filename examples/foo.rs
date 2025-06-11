@@ -148,7 +148,7 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     let ctx = oxanus::WorkerContextValue::new(WorkerState {});
 
     let storage = oxanus::Storage::new(redis_client);
-    let config = oxanus::Config::new(storage)
+    let config = oxanus::Config::new(storage.clone())
         .register_queue::<QueueOne>()
         .register_queue::<QueueTwo>()
         .register_queue::<QueueThrottled>()
@@ -159,7 +159,7 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
         .exit_when_processed(13);
 
     oxanus::enqueue(
-        &config,
+        &storage,
         QueueOne,
         Worker1Sec {
             id: 1,
@@ -168,13 +168,13 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     )
     .await?;
     oxanus::enqueue(
-        &config,
+        &storage,
         QueueTwo(Animal::Dog, 1),
         Worker2Sec { id: 2, foo: 42 },
     )
     .await?;
     oxanus::enqueue(
-        &config,
+        &storage,
         QueueOne,
         Worker1Sec {
             id: 3,
@@ -183,13 +183,13 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     )
     .await?;
     oxanus::enqueue(
-        &config,
+        &storage,
         QueueTwo(Animal::Cat, 2),
         Worker2Sec { id: 4, foo: 44 },
     )
     .await?;
     oxanus::enqueue_in(
-        &config,
+        &storage,
         QueueOne,
         Worker1Sec {
             id: 4,
@@ -199,25 +199,24 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     )
     .await?;
     oxanus::enqueue_in(
-        &config,
+        &storage,
         QueueTwo(Animal::Bird, 7),
         Worker2Sec { id: 5, foo: 44 },
         6,
     )
     .await?;
     oxanus::enqueue_in(
-        &config,
+        &storage,
         QueueTwo(Animal::Bird, 7),
         Worker2Sec { id: 5, foo: 44 },
         15,
     )
     .await?;
-    oxanus::enqueue(&config, QueueThrottled, WorkerInstant {}).await?;
-    oxanus::enqueue(&config, QueueThrottled, WorkerInstant2 {}).await?;
-    oxanus::enqueue(&config, QueueThrottled, WorkerInstant {}).await?;
-    oxanus::enqueue(&config, QueueThrottled, WorkerInstant2 {}).await?;
-    oxanus::enqueue(&config, QueueThrottled, WorkerInstant {}).await?;
-    oxanus::enqueue(&config, QueueThrottled, WorkerInstant2 {}).await?;
+    oxanus::enqueue(&storage, QueueThrottled, WorkerInstant {}).await?;
+    oxanus::enqueue(&storage, QueueThrottled, WorkerInstant2 {}).await?;
+    oxanus::enqueue(&storage, QueueThrottled, WorkerInstant {}).await?;
+    oxanus::enqueue(&storage, QueueThrottled, WorkerInstant {}).await?;
+    oxanus::enqueue(&storage, QueueThrottled, WorkerInstant2 {}).await?;
 
     oxanus::run(config, ctx).await?;
 

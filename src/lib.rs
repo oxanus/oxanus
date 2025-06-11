@@ -116,7 +116,7 @@ where
 }
 
 pub async fn enqueue<T, DT, ET>(
-    config: &Config<DT, ET>,
+    storage: &Storage,
     queue: impl Queue,
     job: T,
 ) -> Result<JobId, OxanusError>
@@ -125,11 +125,11 @@ where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
-    enqueue_in(config, queue, job, 0).await
+    enqueue_in(storage, queue, job, 0).await
 }
 
 pub async fn enqueue_in<T, DT, ET>(
-    config: &Config<DT, ET>,
+    storage: &Storage,
     queue: impl Queue,
     job: T,
     delay: u64,
@@ -142,8 +142,8 @@ where
     let envelope = JobEnvelope::new(queue.key().clone(), job)?;
 
     if delay > 0 {
-        config.storage.enqueue_in(envelope, delay).await
+        storage.enqueue_in(envelope, delay).await
     } else {
-        config.storage.enqueue(envelope).await
+        storage.enqueue(envelope).await
     }
 }

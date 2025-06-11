@@ -60,13 +60,13 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     let ctx = oxanus::WorkerContextValue::new(WorkerState {});
 
     let storage = oxanus::Storage::new(redis_client);
-    let config = oxanus::Config::new(storage)
+    let config = oxanus::Config::new(storage.clone())
         .register_queue::<QueueOne>()
         .register_worker::<Worker2Sec>();
 
-    oxanus::enqueue(&config, QueueOne, Worker2Sec { id: 1 }).await?;
-    oxanus::enqueue(&config, QueueOne, Worker2Sec { id: 1 }).await?;
-    oxanus::enqueue(&config, QueueOne, Worker2Sec { id: 2 }).await?;
+    oxanus::enqueue(&storage, QueueOne, Worker2Sec { id: 1 }).await?;
+    oxanus::enqueue(&storage, QueueOne, Worker2Sec { id: 1 }).await?;
+    oxanus::enqueue(&storage, QueueOne, Worker2Sec { id: 2 }).await?;
 
     oxanus::run(config, ctx).await?;
 

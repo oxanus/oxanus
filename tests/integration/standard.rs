@@ -14,7 +14,7 @@ pub async fn main() -> TestResult {
     });
 
     let storage = oxanus::Storage::new(redis_client).namespace(random_string());
-    let config = oxanus::Config::new(storage)
+    let config = oxanus::Config::new(storage.clone())
         .register_queue::<QueueOne>()
         .register_worker::<WorkerRedisSet>()
         .exit_when_processed(1);
@@ -23,7 +23,7 @@ pub async fn main() -> TestResult {
     let random_value = uuid::Uuid::new_v4().to_string();
 
     oxanus::enqueue(
-        &config,
+        &storage,
         QueueOne,
         WorkerRedisSet {
             key: random_key.clone(),
