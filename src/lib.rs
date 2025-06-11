@@ -17,10 +17,7 @@ mod worker_state;
 #[cfg(test)]
 mod test_helper;
 
-use futures::stream::StreamExt;
-use signal_hook_tokio::Signals;
 use std::sync::Arc;
-use tokio::select;
 use tokio::sync::Mutex;
 
 pub use crate::config::Config;
@@ -31,7 +28,6 @@ pub use crate::result_collector::Stats;
 pub use crate::storage::Storage;
 pub use crate::worker::Worker;
 pub use crate::worker_state::WorkerState;
-pub use signal_hook::consts as signals;
 
 pub async fn run<DT, ET>(
     config: Config<DT, ET>,
@@ -41,6 +37,8 @@ where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
+    let mut config = config;
+    let shutdown_signal = config.consume_shutdown_signal();
     let config = Arc::new(config);
     let mut joinset = tokio::task::JoinSet::new();
     let stats = Arc::new(Mutex::new(Stats::default()));
@@ -59,12 +57,9 @@ where
         ));
     }
 
-    let mut signals = Signals::new(config.shutdown_signals.clone())?;
-
-    select! {
+    tokio::select! {
         _ = config.cancel_token.cancelled() => {}
-        sig = signals.next() => {
-            println!("Received signal {:?}", sig);
+        _ = shutdown_signal => {
             config.cancel_token.cancel();
         }
     }

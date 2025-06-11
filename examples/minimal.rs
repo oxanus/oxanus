@@ -59,7 +59,7 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     let config = oxanus::Config::new(storage)
         .register_queue::<QueueOne>()
         .register_worker::<Worker>()
-        .with_graceful_shutdown([oxanus::signals::SIGINT])
+        .with_graceful_shutdown(tokio::signal::ctrl_c())
         .exit_when_processed(1);
 
     oxanus::enqueue(&config, QueueOne, Worker { sleep_s: 10 }).await?;

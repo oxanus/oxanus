@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::select;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 
@@ -26,7 +25,7 @@ pub async fn run<DT, ET>(
         let semaphore = semaphores.get_or_create(queue_key.clone()).await;
         let permit = semaphore.acquire_owned().await.unwrap();
 
-        select! {
+        tokio::select! {
             result = pop_queue_message(&config.storage, &queue_config, &queue_key) => {
                 let job_id = result.expect("Failed to pop queue message");
                 let job = WorkerJob { job_id, permit };

@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use tokio::select;
 use tokio::sync::{Mutex, mpsc};
 
 use crate::config::Config;
@@ -20,7 +19,7 @@ pub async fn run<DT, ET>(
     ET: std::error::Error + Send + Sync + 'static,
 {
     loop {
-        select! {
+        tokio::select! {
             result = rx.recv() => {
                 match result {
                     Some(result) => update_stats(config.clone(), stats.clone(), result).await,

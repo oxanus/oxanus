@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::select;
 use tokio::sync::{Mutex, mpsc};
 
 use crate::config::Config;
@@ -43,7 +42,7 @@ where
     ));
 
     loop {
-        select! {
+        tokio::select! {
             job = job_rx.recv() => {
                 if let Some(job) = job {
                     tokio::spawn(process_job(

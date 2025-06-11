@@ -1,4 +1,4 @@
-use signal_hook::consts::{SIGINT, SIGTERM};
+use std::pin::Pin;
 use tokio_util::sync::CancellationToken;
 
 use crate::queue::{Queue, QueueConfig};
@@ -6,12 +6,12 @@ use crate::storage::Storage;
 use crate::worker::Worker;
 use crate::worker_registry::WorkerRegistry;
 
-#[derive(Clone)]
 pub struct Config<DT, ET> {
     pub registry: WorkerRegistry<DT, ET>,
     pub queues: Vec<QueueConfig>,
     pub exit_when_processed: Option<u64>,
-    pub shutdown_signals: Vec<i32>,
+    pub shutdown_signal:
+        Pin<Box<dyn Future<Output = Result<(), std::io::Error>> + Send + Sync + 'static>>,
     pub cancel_token: CancellationToken,
     pub storage: Storage,
 }
@@ -22,7 +22,7 @@ impl<DT, ET> Config<DT, ET> {
             registry: WorkerRegistry::new(),
             queues: Vec::new(),
             exit_when_processed: None,
-            shutdown_signals: vec![SIGINT, SIGTERM],
+            shutdown_signal: Box::pin(default_shutdown_signal()),
             cancel_token: CancellationToken::new(),
             storage,
         }
@@ -59,8 +59,34 @@ impl<DT, ET> Config<DT, ET> {
         self
     }
 
-    pub fn with_graceful_shutdown(mut self, signals: impl IntoIterator<Item = i32>) -> Self {
-        self.shutdown_signals = signals.into_iter().collect();
+    pub fn with_graceful_shutdown(
+        mut self,
+        fut: impl Future<Output = Result<(), std::io::Error>> + Send + Sync + 'static,
+    ) -> Self {
+        self.shutdown_signal = Box::pin(fut);
         self
     }
+
+    pub fn consume_shutdown_signal(
+        &mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), std::io::Error>> + Send + Sync + 'static>> {
+        let mut shutdown_signal = no_signal();
+        std::mem::swap(&mut self.shutdown_signal, &mut shutdown_signal);
+        shutdown_signal
+    }
+}
+
+async fn default_shutdown_signal() -> Result<(), std::io::Error> {
+    let ctrl_c = tokio::signal::ctrl_c();
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+
+    tokio::select! {
+        _ = ctrl_c => Ok(()),
+        _ = terminate.recv() => Ok(()),
+    }
+}
+
+fn no_signal() -> Pin<Box<dyn Future<Output = Result<(), std::io::Error>> + Send + Sync + 'static>>
+{
+    Box::pin(async move { Ok(()) })
 }
