@@ -1,4 +1,3 @@
-use serde::Serialize;
 use std::pin::Pin;
 use tokio_util::sync::CancellationToken;
 
@@ -57,11 +56,7 @@ impl<DT, ET> Config<DT, ET> {
 
     pub fn register_cron_worker<T>(mut self, schedule: &str, queue: impl Queue) -> Self
     where
-        T: Worker<Context = DT, Error = ET>
-            + serde::de::DeserializeOwned
-            + 'static
-            + Default
-            + Serialize,
+        T: Worker<Context = DT, Error = ET> + serde::de::DeserializeOwned + 'static + Default,
     {
         self.registry.register_cron::<T>(schedule, queue.key());
         self

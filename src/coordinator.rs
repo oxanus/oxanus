@@ -73,6 +73,8 @@ async fn process_job<DT, ET>(
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
+    tracing::trace!("Processing job: {:?}", job_event);
+
     let envelope: JobEnvelope = match config.storage.get(&job_event.job_id).await {
         Ok(Some(envelope)) => envelope,
         Ok(None) => {

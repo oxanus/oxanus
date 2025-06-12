@@ -39,6 +39,11 @@ where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
+    tracing::info!(
+        "Starting worker (namespace: {})",
+        config.storage.get_namespace()
+    );
+
     let mut config = config;
     let shutdown_signal = config.consume_shutdown_signal();
     let config = Arc::new(config);
@@ -171,6 +176,8 @@ where
     ET: std::error::Error + Send + Sync + 'static,
 {
     let envelope = JobEnvelope::new(queue.key().clone(), job)?;
+
+    tracing::trace!("Enqueuing job: {:?}", envelope);
 
     if delay > 0 {
         storage.enqueue_in(envelope, delay).await

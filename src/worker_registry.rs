@@ -1,8 +1,6 @@
 use std::str::FromStr;
 use std::{any::type_name, collections::HashMap};
 
-use serde::Serialize;
-
 use crate::error::OxanusError;
 use crate::worker::Worker;
 
@@ -51,7 +49,7 @@ impl<DT, ET> WorkerRegistry<DT, ET> {
 
     pub fn register_cron<T>(&mut self, schedule: &str, queue_key: String) -> &mut Self
     where
-        T: Worker<Context = DT, Error = ET> + serde::de::DeserializeOwned + 'static + Serialize,
+        T: Worker<Context = DT, Error = ET> + serde::de::DeserializeOwned + 'static,
     {
         let name = type_name::<T>();
         let schedule = cron::Schedule::from_str(schedule)

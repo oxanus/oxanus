@@ -19,6 +19,7 @@ pub struct Storage {
 
 #[derive(Clone)]
 struct StorageKeys {
+    namespace: String,
     jobs: String,
     dead: String,
     schedule: String,
@@ -43,6 +44,7 @@ impl StorageKeys {
             retry: format!("{namespace}:retry"),
             processing_queue_prefix: format!("{namespace}:processing:"),
             processes: format!("{namespace}:processes"),
+            namespace,
         }
     }
 }
@@ -60,13 +62,19 @@ impl Storage {
         self
     }
 
+    pub fn get_namespace(&self) -> &str {
+        &self.keys.namespace
+    }
+
     pub async fn redis_manager(&self) -> Result<redis::aio::ConnectionManager, OxanusError> {
         Ok(redis::aio::ConnectionManager::new(self.redis_client.clone()).await?)
     }
 
     pub async fn queues(&self, pattern: &str) -> Result<HashSet<String>, OxanusError> {
         let mut redis = self.redis_manager().await?;
-        let keys: Vec<String> = redis.keys(pattern).await?;
+        let keys: Vec<String> = redis
+            .keys(format!("{}:{}", self.keys.namespace, pattern))
+            .await?;
         Ok(keys.into_iter().collect())
     }
 
@@ -90,7 +98,10 @@ impl Storage {
                 redis::ExpireOption::NONE,
                 &envelope.id,
             )
-            .lpush(&envelope.job.queue, &envelope.id)
+            .lpush(
+                &format!("{}:{}", self.keys.namespace, envelope.job.queue),
+                &envelope.id,
+            )
             .query_async(&mut redis)
             .await?;
 
@@ -189,7 +200,7 @@ impl Storage {
         let mut redis = self.redis_manager().await?;
         let job_id: Option<String> = redis
             .blmove(
-                queue,
+                format!("{}:{}", self.keys.namespace, queue),
                 self.current_processing_queue(),
                 redis::Direction::Right,
                 redis::Direction::Left,
@@ -203,7 +214,7 @@ impl Storage {
         let mut redis = self.redis_manager().await?;
         let job_id: Option<String> = redis
             .lmove(
-                queue,
+                format!("{}:{}", self.keys.namespace, queue),
                 self.current_processing_queue(),
                 redis::Direction::Right,
                 redis::Direction::Left,
@@ -223,7 +234,11 @@ impl Storage {
 
     pub async fn delete(&self, id: &str) -> Result<(), OxanusError> {
         let mut redis = self.redis_manager().await?;
-        let _: () = redis.hdel(&self.keys.jobs, id).await?;
+        let _: () = redis::pipe()
+            .hdel(&self.keys.jobs, id)
+            .lrem(self.current_processing_queue(), 1, id)
+            .query_async(&mut redis)
+            .await?;
         Ok(())
     }
 
@@ -299,7 +314,9 @@ impl Storage {
                 .map(|envelope| envelope.id.as_str())
                 .collect();
 
-            let _: i32 = redis.lpush(queue, job_ids).await?;
+            let _: i32 = redis
+                .lpush(format!("{}:{}", self.keys.namespace, queue), job_ids)
+                .await?;
         }
 
         let _: i32 = redis.zrembyscore(schedule_queue, 0, now).await?;
