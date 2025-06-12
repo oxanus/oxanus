@@ -18,16 +18,12 @@ Oxanus is job processing library written in Rust that won't suck (or at least it
 - [x] Unique Jobs
 - [x] Resilient Jobs
 - [x] Graceful Shutdown
-- [ ] Tests
+- [x] Tests
+- [x] Periodic Jobs
 - [ ] Dev API
 - [ ] Observability (prometheus)
-- [ ] Periodic Jobs
 
 ## Dev
-
-```bash
-psql -c "CREATE DATABASE oxanus;"
-```
 
 ```bash
 RUST_LOG=debug cargo run --example foo
