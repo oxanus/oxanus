@@ -1,4 +1,7 @@
+use std::str::FromStr;
 use std::{any::type_name, collections::HashMap};
+
+use serde::Serialize;
 
 use crate::error::OxanusError;
 use crate::worker::Worker;
@@ -6,15 +9,22 @@ use crate::worker::Worker;
 type BoxedJob<DT, ET> = Box<dyn Worker<Context = DT, Error = ET>>;
 type JobFactory<DT, ET> = fn(serde_json::Value) -> Result<BoxedJob<DT, ET>, OxanusError>;
 
-#[derive(Clone)]
 pub struct WorkerRegistry<DT, ET> {
     jobs: HashMap<String, JobFactory<DT, ET>>,
+    pub schedules: HashMap<String, CronJob>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CronJob {
+    pub schedule: cron::Schedule,
+    pub queue_key: String,
 }
 
 impl<DT, ET> WorkerRegistry<DT, ET> {
     pub fn new() -> Self {
         Self {
             jobs: HashMap::new(),
+            schedules: HashMap::new(),
         }
     }
 
@@ -36,6 +46,25 @@ impl<DT, ET> WorkerRegistry<DT, ET> {
         let name = type_name::<T>();
 
         self.jobs.insert(name.to_string(), factory::<T, DT, ET>);
+        self
+    }
+
+    pub fn register_cron<T>(&mut self, schedule: &str, queue_key: String) -> &mut Self
+    where
+        T: Worker<Context = DT, Error = ET> + serde::de::DeserializeOwned + 'static + Serialize,
+    {
+        let name = type_name::<T>();
+        let schedule = cron::Schedule::from_str(schedule)
+            .expect(&format!("{}: Invalid cron schedule: {}", name, schedule));
+
+        self.register::<T>();
+        self.schedules.insert(
+            name.to_string(),
+            CronJob {
+                schedule,
+                queue_key,
+            },
+        );
         self
     }
 

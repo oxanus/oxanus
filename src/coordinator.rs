@@ -77,6 +77,11 @@ async fn process_job<DT, ET>(
         Ok(Some(envelope)) => envelope,
         Ok(None) => {
             tracing::warn!("Job {} not found", job_event.job_id);
+            config
+                .storage
+                .delete(&job_event.job_id)
+                .await
+                .expect("Failed to delete job");
             return;
         }
         Err(e) => {
@@ -93,6 +98,11 @@ async fn process_job<DT, ET>(
         Ok(job) => job,
         Err(e) => {
             println!("Invalid job: {} - {}", &envelope.job.name, e);
+            config
+                .storage
+                .kill(&envelope)
+                .await
+                .expect("Failed to kill job");
             return;
         }
     };

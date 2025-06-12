@@ -19,6 +19,7 @@ mod test_helper;
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 
 pub use crate::config::Config;
 pub use crate::error::OxanusError;
@@ -28,6 +29,7 @@ pub use crate::result_collector::Stats;
 pub use crate::storage::Storage;
 pub use crate::worker::Worker;
 pub use crate::worker_context::{WorkerContext, WorkerContextValue};
+use crate::worker_registry::CronJob;
 
 pub async fn run<DT, ET>(
     config: Config<DT, ET>,
@@ -47,6 +49,7 @@ where
     tokio::spawn(schedule_loop(config.clone()));
     tokio::spawn(ping_loop(config.clone()));
     tokio::spawn(resurrect_loop(config.clone()));
+    tokio::spawn(cron_loop(config.clone()));
 
     for queue_config in &config.queues {
         joinset.spawn(coordinator::run(
@@ -112,6 +115,34 @@ where
     config
         .storage
         .resurrect_loop(config.cancel_token.clone())
+        .await
+}
+
+async fn cron_loop<DT, ET>(config: Arc<Config<DT, ET>>) -> Result<(), OxanusError>
+where
+    DT: Send + Sync + Clone + 'static,
+    ET: std::error::Error + Send + Sync + 'static,
+{
+    for (name, cron_job) in &config.registry.schedules {
+        tokio::spawn(cron_job_loop(
+            config.storage.clone(),
+            config.cancel_token.clone(),
+            name.clone(),
+            cron_job.clone(),
+        ));
+    }
+
+    Ok(())
+}
+
+async fn cron_job_loop(
+    storage: Storage,
+    cancel_token: CancellationToken,
+    job_name: String,
+    cron_job: CronJob,
+) -> Result<(), OxanusError> {
+    storage
+        .cron_job_loop(cancel_token, job_name, cron_job)
         .await
 }
 

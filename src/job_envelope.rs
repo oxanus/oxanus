@@ -52,6 +52,22 @@ impl JobEnvelope {
         })
     }
 
+    pub fn new_cron(queue: String, id: String, name: String) -> Result<Self, OxanusError> {
+        Ok(Self {
+            id,
+            job: Job {
+                name: name.to_string(),
+                queue,
+                args: serde_json::to_value(serde_json::json!({}))?,
+            },
+            meta: JobMeta {
+                retries: 0,
+                unique: true,
+                created_at: u64::try_from(chrono::Utc::now().timestamp_micros())?,
+            },
+        })
+    }
+
     pub fn with_retries_incremented(self) -> Self {
         Self {
             id: self.id,

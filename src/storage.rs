@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use redis::AsyncCommands;
 use std::{
     collections::{HashMap, HashSet},
@@ -5,7 +6,7 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::{JobEnvelope, OxanusError, job_envelope::JobId};
+use crate::{JobEnvelope, OxanusError, job_envelope::JobId, worker_registry::CronJob};
 
 const JOB_EXPIRE_TIME: i64 = 7 * 24 * 3600; // 7 days
 const RESURRECT_THRESHOLD_SECS: i64 = 5;
@@ -114,6 +115,15 @@ impl Storage {
         envelope: JobEnvelope,
         delay_s: u64,
     ) -> Result<JobId, OxanusError> {
+        let time = chrono::Utc::now() + chrono::Duration::seconds(delay_s as i64);
+        self.enqueue_at(envelope, time).await
+    }
+
+    pub async fn enqueue_at(
+        &self,
+        envelope: JobEnvelope,
+        time: DateTime<Utc>,
+    ) -> Result<JobId, OxanusError> {
         let mut redis = self.redis_manager().await?;
 
         if self.should_skip_job(&mut redis, &envelope).await? {
@@ -133,11 +143,7 @@ impl Storage {
                 redis::ExpireOption::NONE,
                 &envelope.id,
             )
-            .zadd(
-                &self.keys.schedule,
-                &envelope.id,
-                envelope.meta.created_at + delay_s * 1_000_000,
-            )
+            .zadd(&self.keys.schedule, &envelope.id, time.timestamp_micros())
             .query_async(&mut redis)
             .await?;
 
@@ -213,6 +219,12 @@ impl Storage {
             Some(envelope) => Ok(Some(serde_json::from_str(&envelope)?)),
             None => Ok(None),
         }
+    }
+
+    pub async fn delete(&self, id: &str) -> Result<(), OxanusError> {
+        let mut redis = self.redis_manager().await?;
+        let _: () = redis.hdel(&self.keys.jobs, id).await?;
+        Ok(())
     }
 
     pub async fn get_many(&self, ids: &[String]) -> Result<Vec<JobEnvelope>, OxanusError> {
@@ -364,6 +376,59 @@ impl Storage {
             self.resurrect(&mut redis_manager).await?;
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
         }
+    }
+
+    pub async fn cron_job_loop(
+        &self,
+        cancel_token: CancellationToken,
+        job_name: String,
+        cron_job: CronJob,
+    ) -> Result<(), OxanusError> {
+        let mut iterator = cron_job
+            .schedule
+            .after(&(chrono::Utc::now() + chrono::Duration::seconds(3)));
+
+        let mut previous: Option<chrono::DateTime<chrono::Utc>> = None;
+
+        loop {
+            let next = match iterator.next() {
+                Some(datetime) => datetime,
+                None => break,
+            };
+
+            loop {
+                if cancel_token.is_cancelled() {
+                    return Ok(());
+                }
+
+                let now = chrono::Utc::now();
+                let max_schedule_time = now + chrono::Duration::minutes(30);
+
+                if next > max_schedule_time {
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    continue;
+                }
+
+                if let Some(previous) = previous {
+                    if previous > now {
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        continue;
+                    }
+                }
+
+                break;
+            }
+
+            let job_id = format!("{}-{}", job_name, next.timestamp_micros());
+            let envelope =
+                JobEnvelope::new_cron(cron_job.queue_key.clone(), job_id, job_name.clone())?;
+
+            self.enqueue_at(envelope, next).await?;
+
+            previous = Some(next);
+        }
+
+        Ok(())
     }
 
     pub async fn resurrect(

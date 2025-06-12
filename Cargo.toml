@@ -12,9 +12,10 @@ test = true
 [dependencies]
 async-trait = "0.1"
 chrono = { version = "^0.4", features = ["serde"] }
+cron = "^0.15"
 futures = { version = "^0.3" }
 gethostname = "^1.0"
-redis = { version = "^0.31", features = [
+redis = { version = "^0.32", features = [
   "connection-manager",
   "tcp_nodelay",
   "tokio-comp",
@@ -22,7 +23,7 @@ redis = { version = "^0.31", features = [
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = { version = "^1.0", features = ["preserve_order"] }
 thiserror = "^2.0"
-tokio = { version = "^1.43", features = ["full"] }
+tokio = { version = "^1.45", features = ["full"] }
 tokio-util = { version = "^0.7" }
 tracing = { version = "^0.1", features = ["log"] }
 uuid = { version = "^1.17", features = ["serde", "v4"] }
