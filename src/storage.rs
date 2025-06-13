@@ -53,20 +53,19 @@ impl StorageKeys {
 }
 
 impl Storage {
-    pub fn from_redis_url(url: impl Into<String>) -> Self {
+    pub fn from_redis_url(url: impl Into<String>) -> Result<Self, OxanusError> {
         let cfg = Config::from_url(url);
         // TODO: handle error
-        let pool = cfg.create_pool(Some(Runtime::Tokio1)).unwrap();
+        let pool = cfg.create_pool(Some(Runtime::Tokio1))?;
 
-        Self {
+        Ok(Self {
             pool,
             keys: StorageKeys::new(""),
-        }
+        })
     }
 
-    pub fn from_env() -> Self {
-        // TODO: handle error
-        let url = std::env::var("REDIS_URL").unwrap();
+    pub fn from_env() -> Result<Self, OxanusError> {
+        let url = std::env::var("REDIS_URL").expect("REDIS_URL is not set");
         Self::from_redis_url(url)
     }
 

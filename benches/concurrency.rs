@@ -132,7 +132,7 @@ async fn execute(concurrency: usize, jobs_count: u64) -> Result<(), oxanus::Oxan
 }
 
 fn build_config(concurrency: usize) -> oxanus::Config<WorkerState, ServiceError> {
-    let storage = oxanus::Storage::from_env();
+    let storage = oxanus::Storage::from_env().expect("Failed to create storage");
     oxanus::Config::new(storage)
         .register_queue_with_concurrency::<QueueOne>(concurrency)
         .register_worker::<WorkerNoop>()

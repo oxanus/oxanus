@@ -52,7 +52,7 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
         .init();
 
     let ctx = oxanus::WorkerContextValue::new(WorkerState {});
-    let storage = oxanus::Storage::from_env();
+    let storage = oxanus::Storage::from_env()?;
     let config = oxanus::Config::new(storage.clone())
         .register_queue::<QueueOne>()
         .register_worker::<TestWorker>()
