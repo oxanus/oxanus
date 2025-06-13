@@ -31,7 +31,7 @@ impl oxanus::Worker for WorkerRedisSet {
 
     async fn process(
         &self,
-        oxanus::WorkerContext { ctx, .. }: &oxanus::WorkerContext<WorkerState>,
+        oxanus::Context { ctx, .. }: &oxanus::Context<WorkerState>,
     ) -> Result<(), WorkerError> {
         let mut redis = ctx.redis.get().await?;
         let _: () = redis.set_ex(&self.key, self.value.clone(), 3).await?;

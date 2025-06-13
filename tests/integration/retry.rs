@@ -19,7 +19,7 @@ impl oxanus::Worker for WorkerRedisSetWithRetry {
 
     async fn process(
         &self,
-        oxanus::WorkerContext { ctx, .. }: &oxanus::WorkerContext<WorkerState>,
+        oxanus::Context { ctx, .. }: &oxanus::Context<WorkerState>,
     ) -> Result<(), WorkerError> {
         let mut redis = ctx.redis.get().await?;
         let value: Option<String> = redis.get(&self.key).await?;
@@ -47,7 +47,7 @@ pub async fn test_retry() -> TestResult {
     let redis_pool = setup();
     let mut redis_conn = redis_pool.get().await?;
 
-    let ctx = oxanus::WorkerContextValue::new(WorkerState {
+    let ctx = oxanus::Context::value(WorkerState {
         redis: redis_pool.clone(),
     });
 

@@ -22,7 +22,7 @@ impl oxanus::Worker for Worker2Sec {
 
     async fn process(
         &self,
-        oxanus::WorkerContext { .. }: &oxanus::WorkerContext<WorkerState>,
+        oxanus::Context { .. }: &oxanus::Context<WorkerState>,
     ) -> Result<(), WorkerError> {
         tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
         Ok(())
@@ -55,7 +55,7 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
         .with(EnvFilter::from_default_env())
         .init();
 
-    let ctx = oxanus::WorkerContextValue::new(WorkerState {});
+    let ctx = oxanus::Context::value(WorkerState {});
     let storage = oxanus::Storage::from_env()?;
     let config = oxanus::Config::new(storage.clone())
         .register_queue::<QueueOne>()

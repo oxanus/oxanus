@@ -44,7 +44,7 @@ impl oxanus::Worker for WorkerNoop {
 
     async fn process(
         &self,
-        oxanus::WorkerContext { .. }: &oxanus::WorkerContext<WorkerState>,
+        oxanus::Context { .. }: &oxanus::Context<WorkerState>,
     ) -> Result<(), ServiceError> {
         tokio::time::sleep(std::time::Duration::from_millis(self.sleep_ms)).await;
         Ok(())
@@ -121,7 +121,7 @@ async fn setup(
 
 async fn execute(concurrency: usize, jobs_count: u64) -> Result<(), oxanus::OxanusError> {
     let config = build_config(concurrency).exit_when_processed(jobs_count);
-    let ctx = oxanus::WorkerContextValue::new(WorkerState {});
+    let ctx = oxanus::Context::value(WorkerState {});
 
     let stats = oxanus::run(config, ctx).await?;
 

@@ -14,7 +14,7 @@ impl oxanus::Worker for WorkerFail {
 
     async fn process(
         &self,
-        oxanus::WorkerContext { .. }: &oxanus::WorkerContext<()>,
+        oxanus::Context { .. }: &oxanus::Context<()>,
     ) -> Result<(), WorkerError> {
         Err(WorkerError::GenericError(
             "I have nothing to live for...".to_string(),
@@ -33,7 +33,7 @@ impl oxanus::Worker for WorkerFail {
 #[tokio::test]
 pub async fn test_dead() -> TestResult {
     let redis_pool = setup();
-    let ctx = oxanus::WorkerContextValue::new(());
+    let ctx = oxanus::Context::value(());
     let storage = oxanus::Storage::from_redis_pool(redis_pool.clone()).namespace(random_string());
     let config = oxanus::Config::new(storage.clone())
         .register_queue::<QueueOne>()

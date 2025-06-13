@@ -1,4 +1,5 @@
 mod config;
+mod context;
 mod coordinator;
 mod dispatcher;
 mod error;
@@ -10,7 +11,6 @@ mod semaphores_map;
 mod storage;
 mod throttler;
 mod worker;
-mod worker_context;
 mod worker_event;
 mod worker_registry;
 
@@ -22,18 +22,19 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 pub use crate::config::Config;
+pub use crate::context::Context;
+use crate::context::ContextValue;
 pub use crate::error::OxanusError;
 pub use crate::job_envelope::{Job, JobEnvelope, JobId};
 pub use crate::queue::{Queue, QueueConfig, QueueKind, QueueThrottle};
 pub use crate::result_collector::Stats;
 pub use crate::storage::Storage;
 pub use crate::worker::Worker;
-pub use crate::worker_context::{WorkerContext, WorkerContextValue};
 use crate::worker_registry::CronJob;
 
 pub async fn run<DT, ET>(
     config: Config<DT, ET>,
-    ctx: WorkerContextValue<DT>,
+    ctx: ContextValue<DT>,
 ) -> Result<Stats, OxanusError>
 where
     DT: Send + Sync + Clone + 'static,

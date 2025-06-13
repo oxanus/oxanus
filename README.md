@@ -1,4 +1,4 @@
-# Oxanus [![Latest Version](https://img.shields.io/crates/v/oxanus.svg)](https://crates.io/crates/oxanus) [![Build Status](https://img.shields.io/github/actions/workflow/status/oxanus/oxanus/test.yml?branch=main)](https://github.com/bikeshedder/oxanus/actions?query=workflow%3ARust)
+# Oxanus [![Latest Version](https://img.shields.io/crates/v/oxanus.svg)](https://crates.io/crates/oxanus) [![Build Status](https://img.shields.io/github/actions/workflow/status/oxanus/oxanus/test.yml?branch=main)](https://github.com/oxanus/oxanus/actions)
 
 <p align="center">
   <picture>

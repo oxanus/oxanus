@@ -23,7 +23,7 @@ impl oxanus::Worker for Worker1Sec {
 
     async fn process(
         &self,
-        oxanus::WorkerContext { .. }: &oxanus::WorkerContext<WorkerState>,
+        oxanus::Context { .. }: &oxanus::Context<WorkerState>,
     ) -> Result<(), WorkerError> {
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
         Ok(())
@@ -43,7 +43,7 @@ impl oxanus::Worker for Worker2Sec {
 
     async fn process(
         &self,
-        oxanus::WorkerContext { .. }: &oxanus::WorkerContext<WorkerState>,
+        oxanus::Context { .. }: &oxanus::Context<WorkerState>,
     ) -> Result<(), WorkerError> {
         tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
         Ok(())
@@ -60,7 +60,7 @@ impl oxanus::Worker for WorkerInstant {
 
     async fn process(
         &self,
-        oxanus::WorkerContext { .. }: &oxanus::WorkerContext<WorkerState>,
+        oxanus::Context { .. }: &oxanus::Context<WorkerState>,
     ) -> Result<(), WorkerError> {
         Ok(())
     }
@@ -76,7 +76,7 @@ impl oxanus::Worker for WorkerInstant2 {
 
     async fn process(
         &self,
-        oxanus::WorkerContext { .. }: &oxanus::WorkerContext<WorkerState>,
+        oxanus::Context { .. }: &oxanus::Context<WorkerState>,
     ) -> Result<(), WorkerError> {
         Ok(())
     }
@@ -143,7 +143,7 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
         .with(EnvFilter::from_default_env())
         .init();
 
-    let ctx = oxanus::WorkerContextValue::new(WorkerState {});
+    let ctx = oxanus::Context::value(WorkerState {});
     let storage = oxanus::Storage::from_env()?;
     let config = oxanus::Config::new(storage.clone())
         .register_queue::<QueueOne>()

@@ -8,7 +8,7 @@ pub async fn test_standard() -> TestResult {
     let redis_pool = setup();
     let mut redis_conn = redis_pool.get().await?;
 
-    let ctx = oxanus::WorkerContextValue::new(WorkerState {
+    let ctx = oxanus::Context::value(WorkerState {
         redis: redis_pool.clone(),
     });
 

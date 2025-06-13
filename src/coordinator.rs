@@ -2,8 +2,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 
-use crate::WorkerContextValue;
 use crate::config::Config;
+use crate::context::ContextValue;
 use crate::error::OxanusError;
 use crate::job_envelope::JobEnvelope;
 use crate::queue::{QueueConfig, QueueKind};
@@ -17,7 +17,7 @@ use crate::{
 pub async fn run<DT, ET>(
     config: Arc<Config<DT, ET>>,
     stats: Arc<Mutex<Stats>>,
-    ctx: WorkerContextValue<DT>,
+    ctx: ContextValue<DT>,
     queue_config: QueueConfig,
 ) -> Result<(), OxanusError>
 where
@@ -66,7 +66,7 @@ where
 
 async fn process_job<DT, ET>(
     config: Arc<Config<DT, ET>>,
-    ctx: WorkerContextValue<DT>,
+    ctx: ContextValue<DT>,
     result_tx: mpsc::Sender<Result<(), ET>>,
     job_event: WorkerJob,
 ) where

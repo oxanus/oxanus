@@ -1,4 +1,4 @@
-use crate::worker_context::WorkerContext;
+use crate::context::Context;
 
 pub type BoxedWorker<DT, ET> = Box<dyn Worker<Context = DT, Error = ET>>;
 
@@ -7,7 +7,7 @@ pub trait Worker: Send + Sync {
     type Context: Clone + Send + Sync;
     type Error: std::error::Error + Send + Sync;
 
-    async fn process(&self, data: &WorkerContext<Self::Context>) -> Result<(), Self::Error>;
+    async fn process(&self, data: &Context<Self::Context>) -> Result<(), Self::Error>;
 
     fn max_retries(&self) -> u32 {
         1
