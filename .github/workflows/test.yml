@@ -19,6 +19,7 @@ jobs:
         options: --entrypoint redis-server
 
     env:
+      CARGO_TERM_COLOR: always
       REDIS_URL: redis://localhost:6379
       RUST_LOG: trace
 
@@ -28,5 +29,9 @@ jobs:
 
     - uses: Swatinem/rust-cache@v2
 
+    - uses: taiki-e/install-action@v2
+      with:
+        tool: nextest
+
     - name: Run tests
-      run: cargo test  -- --nocapture
+      run: cargo nextest run
