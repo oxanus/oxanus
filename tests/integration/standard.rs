@@ -12,7 +12,7 @@ pub async fn test_standard() -> TestResult {
         redis: redis_pool.clone(),
     });
 
-    let storage = oxanus::Storage::from_env()?.namespace(random_string());
+    let storage = oxanus::Storage::from_redis_pool(redis_pool.clone()).namespace(random_string());
     let config = oxanus::Config::new(storage.clone())
         .register_queue::<QueueOne>()
         .register_worker::<WorkerRedisSet>()

@@ -58,10 +58,14 @@ impl Storage {
         // TODO: handle error
         let pool = cfg.create_pool(Some(Runtime::Tokio1))?;
 
-        Ok(Self {
+        Ok(Self::from_redis_pool(pool))
+    }
+
+    pub fn from_redis_pool(pool: deadpool_redis::Pool) -> Self {
+        Self {
             pool,
             keys: StorageKeys::new(""),
-        })
+        }
     }
 
     pub fn from_env() -> Result<Self, OxanusError> {
