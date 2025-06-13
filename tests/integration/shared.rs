@@ -46,7 +46,7 @@ impl oxanus::Queue for QueueOne {
     }
 }
 
-pub fn setup() {
+pub fn setup() -> redis::Client {
     dotenvy::from_filename(".env.test").ok();
 
     tracing_subscriber::registry()
@@ -54,6 +54,9 @@ pub fn setup() {
         .with(EnvFilter::from_default_env())
         .try_init()
         .ok();
+
+    let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL is not set");
+    redis::Client::open(redis_url.clone()).expect("Failed to open Redis client")
 }
 
 pub fn random_string() -> String {

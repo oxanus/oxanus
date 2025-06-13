@@ -324,6 +324,32 @@ impl Storage {
         Ok(envelopes_count)
     }
 
+    pub async fn enqueued_count(&self, queue: &str) -> Result<usize, OxanusError> {
+        let mut redis = self.redis_manager().await?;
+        let count: i64 = redis
+            .llen(format!("{}:{}", self.keys.namespace, queue))
+            .await?;
+        Ok(count as usize)
+    }
+
+    pub async fn dead_count(&self) -> Result<usize, OxanusError> {
+        let mut redis = self.redis_manager().await?;
+        let count: i64 = redis.llen(&self.keys.dead).await?;
+        Ok(count as usize)
+    }
+
+    pub async fn retries_count(&self) -> Result<usize, OxanusError> {
+        let mut redis = self.redis_manager().await?;
+        let count: i64 = redis.zcard(&self.keys.retry).await?;
+        Ok(count as usize)
+    }
+
+    pub async fn scheduled_count(&self) -> Result<usize, OxanusError> {
+        let mut redis = self.redis_manager().await?;
+        let count: i64 = redis.zcard(&self.keys.schedule).await?;
+        Ok(count as usize)
+    }
+
     pub async fn retry_loop(&self, cancel_token: CancellationToken) -> Result<(), OxanusError> {
         tracing::info!("Starting retry loop");
 

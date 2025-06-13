@@ -1,7 +1,9 @@
-use crate::shared::*;
+use oxanus::Queue;
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use testresult::TestResult;
+
+use crate::shared::*;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WorkerRedisSetWithRetry {
@@ -41,11 +43,9 @@ impl oxanus::Worker for WorkerRedisSetWithRetry {
 }
 
 #[tokio::test]
-pub async fn main() -> TestResult {
-    setup();
+pub async fn test_retry() -> TestResult {
+    let redis_client = setup();
 
-    let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL is not set");
-    let redis_client = redis::Client::open(redis_url.clone()).expect("Failed to open Redis client");
     let mut redis_manager = redis::aio::ConnectionManager::new(redis_client.clone()).await?;
     let ctx = oxanus::WorkerContextValue::new(WorkerState {
         redis: redis_manager.clone(),
@@ -72,11 +72,15 @@ pub async fn main() -> TestResult {
     )
     .await?;
 
+    assert_eq!(storage.enqueued_count(&QueueOne.key()).await?, 1);
+
     oxanus::run(config, ctx).await?;
 
     let value: Option<String> = redis_manager.get(random_key).await?;
 
     assert_eq!(value, Some(random_value_second));
+    assert_eq!(storage.dead_count().await?, 0);
+    assert_eq!(storage.enqueued_count(&QueueOne.key()).await?, 0);
 
     Ok(())
 }
