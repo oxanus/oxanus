@@ -1,7 +1,8 @@
 use crate::OxanusError;
+use deadpool_redis::redis;
 
 pub struct Throttler {
-    redis: redis::aio::ConnectionManager,
+    redis_pool: deadpool_redis::Pool,
     key: String,
     limit: u64,
     window_ms: u64,
@@ -15,14 +16,9 @@ pub struct ThrottlerState {
 }
 
 impl Throttler {
-    pub fn new(
-        redis: redis::aio::ConnectionManager,
-        key: &str,
-        limit: u64,
-        window_ms: u64,
-    ) -> Self {
+    pub fn new(redis_pool: deadpool_redis::Pool, key: &str, limit: u64, window_ms: u64) -> Self {
         Throttler {
-            redis,
+            redis_pool,
             key: Self::build_key(key),
             limit,
             window_ms,
@@ -30,9 +26,9 @@ impl Throttler {
     }
 
     pub async fn consume(&self) -> Result<ThrottlerState, OxanusError> {
-        let mut redis = self.redis.clone();
+        let mut redis = self.redis_pool.get().await?;
         let current_time = u64::try_from(chrono::Utc::now().timestamp_micros())?;
-        let state = self.state(&mut redis).await?;
+        let state = self.state().await?;
 
         if state.is_allowed {
             let (updated, _): (u64, ()) = redis::pipe()
@@ -50,10 +46,8 @@ impl Throttler {
         }
     }
 
-    pub async fn state(
-        &self,
-        redis: &mut redis::aio::ConnectionManager,
-    ) -> Result<ThrottlerState, OxanusError> {
+    pub async fn state(&self) -> Result<ThrottlerState, OxanusError> {
+        let mut redis = self.redis_pool.get().await?;
         let now = u64::try_from(chrono::Utc::now().timestamp_micros())?;
         let window_start = now - self.window_micros();
 
@@ -61,7 +55,7 @@ impl Throttler {
             .zrembyscore(&self.key, 0, window_start)
             .zrange_withscores(&self.key, 0, 0)
             .zcard(&self.key)
-            .query_async(redis)
+            .query_async(&mut *redis)
             .await?;
 
         let accurate_window_start = if let Some((_, score)) = first.first() {
@@ -108,9 +102,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_consume() -> TestResult {
-        let redis = redis_manager().await?;
+        let pool = redis_pool().await?;
         let key = random_string();
-        let rate_limiter = Throttler::new(redis, &key, 2, 60000);
+        let rate_limiter = Throttler::new(pool, &key, 2, 60000);
         assert!(rate_limiter.consume().await?.is_allowed);
         assert!(rate_limiter.consume().await?.is_allowed);
         let state = rate_limiter.consume().await?;

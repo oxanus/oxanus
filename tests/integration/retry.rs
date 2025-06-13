@@ -1,5 +1,5 @@
+use deadpool_redis::redis::AsyncCommands;
 use oxanus::Queue;
-use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use testresult::TestResult;
 
@@ -21,7 +21,7 @@ impl oxanus::Worker for WorkerRedisSetWithRetry {
         &self,
         oxanus::WorkerContext { ctx, .. }: &oxanus::WorkerContext<WorkerState>,
     ) -> Result<(), WorkerError> {
-        let mut redis = ctx.redis.clone();
+        let mut redis = ctx.redis.get().await?;
         let value: Option<String> = redis.get(&self.key).await?;
         if value.is_some() {
             let _: () = redis
@@ -44,14 +44,14 @@ impl oxanus::Worker for WorkerRedisSetWithRetry {
 
 #[tokio::test]
 pub async fn test_retry() -> TestResult {
-    let redis_client = setup();
+    let redis_pool = setup();
+    let mut redis_conn = redis_pool.get().await?;
 
-    let mut redis_manager = redis::aio::ConnectionManager::new(redis_client.clone()).await?;
     let ctx = oxanus::WorkerContextValue::new(WorkerState {
-        redis: redis_manager.clone(),
+        redis: redis_pool.clone(),
     });
 
-    let storage = oxanus::Storage::new(redis_client).namespace(random_string());
+    let storage = oxanus::Storage::from_env().namespace(random_string());
     let config = oxanus::Config::new(storage.clone())
         .register_queue::<QueueOne>()
         .register_worker::<WorkerRedisSetWithRetry>()
@@ -76,7 +76,7 @@ pub async fn test_retry() -> TestResult {
 
     oxanus::run(config, ctx).await?;
 
-    let value: Option<String> = redis_manager.get(random_key).await?;
+    let value: Option<String> = redis_conn.get(random_key).await?;
 
     assert_eq!(value, Some(random_value_second));
     assert_eq!(storage.dead_count().await?, 0);

@@ -1,5 +1,8 @@
 use chrono::{DateTime, Utc};
-use redis::AsyncCommands;
+use deadpool_redis::{
+    Config, Runtime,
+    redis::{self, AsyncCommands},
+};
 use std::{
     collections::{HashMap, HashSet},
     num::NonZero,
@@ -13,7 +16,7 @@ const RESURRECT_THRESHOLD_SECS: i64 = 5;
 
 #[derive(Clone)]
 pub struct Storage {
-    redis_client: redis::Client,
+    pool: deadpool_redis::Pool,
     keys: StorageKeys,
 }
 
@@ -50,11 +53,21 @@ impl StorageKeys {
 }
 
 impl Storage {
-    pub fn new(redis_client: redis::Client) -> Self {
+    pub fn from_redis_url(url: impl Into<String>) -> Self {
+        let cfg = Config::from_url(url);
+        // TODO: handle error
+        let pool = cfg.create_pool(Some(Runtime::Tokio1)).unwrap();
+
         Self {
-            redis_client,
+            pool,
             keys: StorageKeys::new(""),
         }
+    }
+
+    pub fn from_env() -> Self {
+        // TODO: handle error
+        let url = std::env::var("REDIS_URL").unwrap();
+        Self::from_redis_url(url)
     }
 
     pub fn namespace(mut self, namespace: impl Into<String>) -> Self {
@@ -66,27 +79,34 @@ impl Storage {
         &self.keys.namespace
     }
 
-    pub async fn redis_manager(&self) -> Result<redis::aio::ConnectionManager, OxanusError> {
-        Ok(redis::aio::ConnectionManager::new(self.redis_client.clone()).await?)
+    pub async fn pool(&self) -> Result<deadpool_redis::Pool, OxanusError> {
+        Ok(self.pool.clone())
+    }
+
+    pub async fn connection(&self) -> Result<deadpool_redis::Connection, OxanusError> {
+        self.pool
+            .get()
+            .await
+            .map_err(OxanusError::DeadpoolRedisPoolError)
     }
 
     pub async fn queues(&self, pattern: &str) -> Result<HashSet<String>, OxanusError> {
-        let mut redis = self.redis_manager().await?;
-        let keys: Vec<String> = redis
+        let mut conn = self.connection().await?;
+        let keys: Vec<String> = (*conn)
             .keys(format!("{}:{}", self.keys.namespace, pattern))
             .await?;
         Ok(keys.into_iter().collect())
     }
 
     pub async fn enqueue(&self, envelope: JobEnvelope) -> Result<JobId, OxanusError> {
-        let mut redis = self.redis_manager().await?;
+        let mut redis = self.connection().await?;
 
         if self.should_skip_job(&mut redis, &envelope).await? {
             tracing::warn!("Unique job {} already exists, skipping", envelope.id);
             return Ok(envelope.id);
         }
 
-        let _: () = redis::pipe()
+        let _: () = deadpool_redis::redis::pipe()
             .hset(
                 &self.keys.jobs,
                 &envelope.id,
@@ -95,14 +115,14 @@ impl Storage {
             .hexpire(
                 &self.keys.jobs,
                 JOB_EXPIRE_TIME,
-                redis::ExpireOption::NONE,
+                deadpool_redis::redis::ExpireOption::NONE,
                 &envelope.id,
             )
             .lpush(
-                &format!("{}:{}", self.keys.namespace, envelope.job.queue),
+                format!("{}:{}", self.keys.namespace, envelope.job.queue),
                 &envelope.id,
             )
-            .query_async(&mut redis)
+            .query_async(&mut *redis)
             .await?;
 
         Ok(envelope.id)
@@ -110,7 +130,7 @@ impl Storage {
 
     async fn should_skip_job(
         &self,
-        redis: &mut redis::aio::ConnectionManager,
+        redis: &mut deadpool_redis::Connection,
         envelope: &JobEnvelope,
     ) -> Result<bool, OxanusError> {
         if !envelope.meta.unique {
@@ -135,7 +155,7 @@ impl Storage {
         envelope: JobEnvelope,
         time: DateTime<Utc>,
     ) -> Result<JobId, OxanusError> {
-        let mut redis = self.redis_manager().await?;
+        let mut redis = self.connection().await?;
 
         if self.should_skip_job(&mut redis, &envelope).await? {
             tracing::warn!("Unique job {} already exists, skipping", envelope.id);
@@ -169,7 +189,7 @@ impl Storage {
             return Ok(());
         }
 
-        let mut redis = self.redis_manager().await?;
+        let mut redis = self.connection().await?;
         let _: () = redis::pipe()
             .hset(
                 &self.keys.jobs,
@@ -197,7 +217,7 @@ impl Storage {
         queue: &str,
         timeout: f64,
     ) -> Result<Option<String>, OxanusError> {
-        let mut redis = self.redis_manager().await?;
+        let mut redis = self.connection().await?;
         let job_id: Option<String> = redis
             .blmove(
                 format!("{}:{}", self.keys.namespace, queue),
@@ -211,7 +231,7 @@ impl Storage {
     }
 
     pub async fn dequeue(&self, queue: &str) -> Result<Option<String>, OxanusError> {
-        let mut redis = self.redis_manager().await?;
+        let mut redis = self.connection().await?;
         let job_id: Option<String> = redis
             .lmove(
                 format!("{}:{}", self.keys.namespace, queue),
@@ -224,7 +244,7 @@ impl Storage {
     }
 
     pub async fn get(&self, id: &str) -> Result<Option<JobEnvelope>, OxanusError> {
-        let mut redis = self.redis_manager().await?;
+        let mut redis = self.connection().await?;
         let envelope: Option<String> = redis.hget(&self.keys.jobs, id).await?;
         match envelope {
             Some(envelope) => Ok(Some(serde_json::from_str(&envelope)?)),
@@ -233,7 +253,7 @@ impl Storage {
     }
 
     pub async fn delete(&self, id: &str) -> Result<(), OxanusError> {
-        let mut redis = self.redis_manager().await?;
+        let mut redis = self.connection().await?;
         let _: () = redis::pipe()
             .hdel(&self.keys.jobs, id)
             .lrem(self.current_processing_queue(), 1, id)
@@ -243,7 +263,7 @@ impl Storage {
     }
 
     pub async fn get_many(&self, ids: &[String]) -> Result<Vec<JobEnvelope>, OxanusError> {
-        let mut redis = self.redis_manager().await?;
+        let mut redis = self.connection().await?;
         let mut cmd = redis::cmd("HMGET");
         cmd.arg(&self.keys.jobs);
         cmd.arg(ids);
@@ -256,7 +276,7 @@ impl Storage {
     }
 
     pub async fn kill(&self, envelope: &JobEnvelope) -> Result<(), OxanusError> {
-        let mut redis = self.redis_manager().await?;
+        let mut redis = self.connection().await?;
         let _: () = redis::pipe()
             .hdel(&self.keys.jobs, &envelope.id)
             .lpush(&self.keys.dead, &serde_json::to_string(envelope)?)
@@ -266,7 +286,7 @@ impl Storage {
     }
 
     pub async fn finish_with_success(&self, envelope: &JobEnvelope) -> Result<(), OxanusError> {
-        let mut redis = self.redis_manager().await?;
+        let mut redis = self.connection().await?;
         let _: () = redis::pipe()
             .hdel(&self.keys.jobs, &envelope.id)
             .lrem(self.current_processing_queue(), 1, &envelope.id)
@@ -276,7 +296,7 @@ impl Storage {
     }
 
     pub async fn finish_with_failure(&self, envelope: &JobEnvelope) -> Result<(), OxanusError> {
-        let mut redis = self.redis_manager().await?;
+        let mut redis = self.connection().await?;
         let _: () = redis::pipe()
             .lrem(self.current_processing_queue(), 1, &envelope.id)
             .query_async(&mut redis)
@@ -286,12 +306,12 @@ impl Storage {
 
     pub async fn enqueue_scheduled(
         &self,
-        redis: &mut redis::aio::ConnectionManager,
+        redis: &mut deadpool_redis::Connection,
         schedule_queue: &str,
     ) -> Result<usize, OxanusError> {
         let now = chrono::Utc::now().timestamp_micros();
 
-        let job_ids: Vec<String> = redis.zrangebyscore(schedule_queue, 0, now).await?;
+        let job_ids: Vec<String> = (*redis).zrangebyscore(schedule_queue, 0, now).await?;
 
         if job_ids.is_empty() {
             return Ok(0);
@@ -325,43 +345,42 @@ impl Storage {
     }
 
     pub async fn enqueued_count(&self, queue: &str) -> Result<usize, OxanusError> {
-        let mut redis = self.redis_manager().await?;
-        let count: i64 = redis
+        let mut redis = self.connection().await?;
+        let count: i64 = (*redis)
             .llen(format!("{}:{}", self.keys.namespace, queue))
             .await?;
         Ok(count as usize)
     }
 
     pub async fn dead_count(&self) -> Result<usize, OxanusError> {
-        let mut redis = self.redis_manager().await?;
-        let count: i64 = redis.llen(&self.keys.dead).await?;
+        let mut redis = self.connection().await?;
+        let count: i64 = (*redis).llen(&self.keys.dead).await?;
         Ok(count as usize)
     }
 
     pub async fn retries_count(&self) -> Result<usize, OxanusError> {
-        let mut redis = self.redis_manager().await?;
-        let count: i64 = redis.zcard(&self.keys.retry).await?;
+        let mut redis = self.connection().await?;
+        let count: i64 = (*redis).zcard(&self.keys.retry).await?;
         Ok(count as usize)
     }
 
     pub async fn scheduled_count(&self) -> Result<usize, OxanusError> {
-        let mut redis = self.redis_manager().await?;
-        let count: i64 = redis.zcard(&self.keys.schedule).await?;
+        let mut redis = self.connection().await?;
+        let count: i64 = (*redis).zcard(&self.keys.schedule).await?;
         Ok(count as usize)
     }
 
     pub async fn retry_loop(&self, cancel_token: CancellationToken) -> Result<(), OxanusError> {
         tracing::info!("Starting retry loop");
 
-        let mut redis_manager = self.redis_manager().await?;
+        let mut redis = self.connection().await?;
 
         loop {
             if cancel_token.is_cancelled() {
                 return Ok(());
             }
 
-            self.enqueue_scheduled(&mut redis_manager, &self.keys.retry)
-                .await?;
+            self.enqueue_scheduled(&mut redis, &self.keys.retry).await?;
             tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
         }
     }
@@ -369,34 +388,34 @@ impl Storage {
     pub async fn schedule_loop(&self, cancel_token: CancellationToken) -> Result<(), OxanusError> {
         tracing::info!("Starting schedule loop");
 
-        let mut redis_manager = self.redis_manager().await?;
+        let mut redis = self.connection().await?;
 
         loop {
             if cancel_token.is_cancelled() {
                 return Ok(());
             }
 
-            self.enqueue_scheduled(&mut redis_manager, &self.keys.schedule)
+            self.enqueue_scheduled(&mut redis, &self.keys.schedule)
                 .await?;
             tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
         }
     }
 
     pub async fn ping_loop(&self, cancel_token: CancellationToken) -> Result<(), OxanusError> {
-        let mut redis_manager = self.redis_manager().await?;
+        let mut redis = self.connection().await?;
 
         loop {
             if cancel_token.is_cancelled() {
                 return Ok(());
             }
 
-            self.ping(&mut redis_manager).await?;
+            self.ping(&mut redis).await?;
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
     }
 
-    pub async fn ping(&self, redis: &mut redis::aio::ConnectionManager) -> Result<(), OxanusError> {
-        let _: () = redis
+    pub async fn ping(&self, redis: &mut deadpool_redis::Connection) -> Result<(), OxanusError> {
+        let _: () = (*redis)
             .zadd(
                 &self.keys.processes,
                 self.current_process_id(),
@@ -409,14 +428,14 @@ impl Storage {
     pub async fn resurrect_loop(&self, cancel_token: CancellationToken) -> Result<(), OxanusError> {
         tracing::info!("Starting resurrect loop");
 
-        let mut redis_manager = self.redis_manager().await?;
+        let mut redis = self.connection().await?;
 
         loop {
             if cancel_token.is_cancelled() {
                 return Ok(());
             }
 
-            self.resurrect(&mut redis_manager).await?;
+            self.resurrect(&mut redis).await?;
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
         }
     }
@@ -427,18 +446,13 @@ impl Storage {
         job_name: String,
         cron_job: CronJob,
     ) -> Result<(), OxanusError> {
-        let mut iterator = cron_job
+        let iterator = cron_job
             .schedule
             .after(&(chrono::Utc::now() + chrono::Duration::seconds(3)));
 
         let mut previous: Option<chrono::DateTime<chrono::Utc>> = None;
 
-        loop {
-            let next = match iterator.next() {
-                Some(datetime) => datetime,
-                None => break,
-            };
-
+        for next in iterator {
             loop {
                 if cancel_token.is_cancelled() {
                     return Ok(());
@@ -476,9 +490,9 @@ impl Storage {
 
     pub async fn resurrect(
         &self,
-        redis: &mut redis::aio::ConnectionManager,
+        redis: &mut deadpool_redis::Connection,
     ) -> Result<(), OxanusError> {
-        let processes: Vec<String> = redis
+        let processes: Vec<String> = (*redis)
             .zrangebyscore(
                 &self.keys.processes,
                 0,
@@ -492,7 +506,7 @@ impl Storage {
             let processing_queue = self.processing_queue(&process_id);
 
             loop {
-                let job_ids: Vec<String> = redis
+                let job_ids: Vec<String> = (*redis)
                     .lpop(&processing_queue, Some(NonZero::new(10).unwrap()))
                     .await?;
 
@@ -510,14 +524,14 @@ impl Storage {
                                 "Resurrecting job"
                             );
                             self.enqueue(envelope).await?;
-                            let _: () = redis.lrem(&processing_queue, 1, &job_id).await?;
+                            let _: () = (*redis).lrem(&processing_queue, 1, &job_id).await?;
                         }
                         None => tracing::warn!("Job {} not found", job_id),
                     }
                 }
             }
 
-            let _: () = redis.zrem(&self.keys.processes, &process_id).await?;
+            let _: () = (*redis).zrem(&self.keys.processes, &process_id).await?;
         }
 
         Ok(())

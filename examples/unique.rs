@@ -55,11 +55,8 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
         .with(EnvFilter::from_default_env())
         .init();
 
-    let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL is not set");
-    let redis_client = redis::Client::open(redis_url.clone()).expect("Failed to open Redis client");
     let ctx = oxanus::WorkerContextValue::new(WorkerState {});
-
-    let storage = oxanus::Storage::new(redis_client);
+    let storage = oxanus::Storage::from_env();
     let config = oxanus::Config::new(storage.clone())
         .register_queue::<QueueOne>()
         .register_worker::<Worker2Sec>();

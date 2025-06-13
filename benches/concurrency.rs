@@ -54,9 +54,7 @@ impl oxanus::Worker for WorkerNoop {
 fn run_1000_jobs_taking_0_ms(bencher: divan::Bencher, n: usize) {
     let rt = &tokio::runtime::Runtime::new().unwrap();
     let sleep_ms = 0;
-    let client =
-        redis::Client::open(std::env::var("REDIS_URL").expect("REDIS_URL is not set")).unwrap();
-    let config = build_config(client, n);
+    let config = build_config(n);
     rt.block_on(async { setup(config, JOBS_COUNT, sleep_ms).await.unwrap() });
 
     bencher.bench(|| {
@@ -70,9 +68,7 @@ fn run_1000_jobs_taking_0_ms(bencher: divan::Bencher, n: usize) {
 fn run_1000_jobs_taking_1_ms(bencher: divan::Bencher, n: usize) {
     let rt = &tokio::runtime::Runtime::new().unwrap();
     let sleep_ms = 1;
-    let client =
-        redis::Client::open(std::env::var("REDIS_URL").expect("REDIS_URL is not set")).unwrap();
-    let config = build_config(client, n);
+    let config = build_config(n);
     rt.block_on(async { setup(config, JOBS_COUNT, sleep_ms).await.unwrap() });
 
     bencher.bench(|| {
@@ -86,9 +82,7 @@ fn run_1000_jobs_taking_1_ms(bencher: divan::Bencher, n: usize) {
 fn run_1000_jobs_taking_2_ms(bencher: divan::Bencher, n: usize) {
     let rt = &tokio::runtime::Runtime::new().unwrap();
     let sleep_ms = 2;
-    let client =
-        redis::Client::open(std::env::var("REDIS_URL").expect("REDIS_URL is not set")).unwrap();
-    let config = build_config(client, n);
+    let config = build_config(n);
     rt.block_on(async { setup(config, JOBS_COUNT, sleep_ms).await.unwrap() });
 
     bencher.bench(|| {
@@ -102,9 +96,7 @@ fn run_1000_jobs_taking_2_ms(bencher: divan::Bencher, n: usize) {
 fn run_1000_jobs_taking_10_ms(bencher: divan::Bencher, n: usize) {
     let rt = &tokio::runtime::Runtime::new().unwrap();
     let sleep_ms = 10;
-    let client =
-        redis::Client::open(std::env::var("REDIS_URL").expect("REDIS_URL is not set")).unwrap();
-    let config = build_config(client, n);
+    let config = build_config(n);
     rt.block_on(async { setup(config, JOBS_COUNT, sleep_ms).await.unwrap() });
 
     bencher.bench(|| {
@@ -127,9 +119,7 @@ async fn setup(
 }
 
 async fn execute(concurrency: usize, jobs_count: u64) -> Result<(), oxanus::OxanusError> {
-    let client =
-        redis::Client::open(std::env::var("REDIS_URL").expect("REDIS_URL is not set")).unwrap();
-    let config = build_config(client, concurrency).exit_when_processed(jobs_count);
+    let config = build_config(concurrency).exit_when_processed(jobs_count);
     let ctx = oxanus::WorkerContextValue::new(WorkerState {});
 
     let stats = oxanus::run(config, ctx).await?;
@@ -141,11 +131,8 @@ async fn execute(concurrency: usize, jobs_count: u64) -> Result<(), oxanus::Oxan
     Ok(())
 }
 
-fn build_config(
-    redis_client: redis::Client,
-    concurrency: usize,
-) -> oxanus::Config<WorkerState, ServiceError> {
-    let storage = oxanus::Storage::new(redis_client);
+fn build_config(concurrency: usize) -> oxanus::Config<WorkerState, ServiceError> {
+    let storage = oxanus::Storage::from_env();
     oxanus::Config::new(storage)
         .register_queue_with_concurrency::<QueueOne>(concurrency)
         .register_worker::<WorkerNoop>()

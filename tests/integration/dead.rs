@@ -32,11 +32,8 @@ impl oxanus::Worker for WorkerFail {
 
 #[tokio::test]
 pub async fn test_dead() -> TestResult {
-    let redis_client = setup();
-
     let ctx = oxanus::WorkerContextValue::new(());
-
-    let storage = oxanus::Storage::new(redis_client).namespace(random_string());
+    let storage = oxanus::Storage::from_env().namespace(random_string());
     let config = oxanus::Config::new(storage.clone())
         .register_queue::<QueueOne>()
         .register_worker::<WorkerFail>()

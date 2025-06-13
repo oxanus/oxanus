@@ -71,16 +71,11 @@ async fn pop_queue_message_w_throttle(
     queue_key: &str,
     throttle: &QueueThrottle,
 ) -> Result<String, OxanusError> {
-    let mut redis_manager = storage.redis_manager().await?;
+    let pool = storage.pool().await?;
     loop {
-        let throttler = Throttler::new(
-            redis_manager.clone(),
-            queue_key,
-            throttle.limit,
-            throttle.window_ms,
-        );
+        let throttler = Throttler::new(pool.clone(), queue_key, throttle.limit, throttle.window_ms);
 
-        let state = throttler.state(&mut redis_manager).await?;
+        let state = throttler.state().await?;
 
         if state.is_allowed {
             if let Some(job_id) = storage.dequeue(queue_key).await? {

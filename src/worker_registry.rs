@@ -53,7 +53,7 @@ impl<DT, ET> WorkerRegistry<DT, ET> {
     {
         let name = type_name::<T>();
         let schedule = cron::Schedule::from_str(schedule)
-            .expect(&format!("{}: Invalid cron schedule: {}", name, schedule));
+            .unwrap_or_else(|_| panic!("{}: Invalid cron schedule: {}", name, schedule));
 
         self.register::<T>();
         self.schedules.insert(

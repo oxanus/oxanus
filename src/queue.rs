@@ -86,7 +86,7 @@ fn value_to_queue_key(value: &serde_json::Value) -> String {
         serde_json::Value::Bool(b) => b.to_string(),
         serde_json::Value::Array(a) => a
             .iter()
-            .map(|v| value_to_queue_key(v))
+            .map(value_to_queue_key)
             .collect::<Vec<String>>()
             .join(":"),
         serde_json::Value::Object(object) => object

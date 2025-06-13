@@ -10,10 +10,12 @@ pub enum OxanusError {
     JobFactoryError(String),
     #[error("Worker error: {0}")]
     TokioJoinError(#[from] tokio::task::JoinError),
-    #[error("Redis error: {0}")]
-    RedisError(#[from] redis::RedisError),
     #[error("Try from int error: {0}")]
     TryFromIntError(#[from] std::num::TryFromIntError),
     #[error("Std IO error: {0}")]
     StdIoError(#[from] std::io::Error),
+    #[error("Deadpool Redis error: {0}")]
+    DeadpoolRedisError(#[from] deadpool_redis::redis::RedisError),
+    #[error("Deadpool Redis pool error: {0}")]
+    DeadpoolRedisPoolError(#[from] deadpool_redis::PoolError),
 }

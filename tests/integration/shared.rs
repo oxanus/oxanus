@@ -1,5 +1,5 @@
+use deadpool_redis::redis::AsyncCommands;
 use rand::distr::{Alphanumeric, SampleString};
-use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
@@ -8,12 +8,14 @@ pub enum WorkerError {
     #[error("Generic error: {0}")]
     GenericError(String),
     #[error("Redis error: {0}")]
-    RedisError(#[from] redis::RedisError),
+    RedisError(#[from] deadpool_redis::redis::RedisError),
+    #[error("Redis error: {0}")]
+    PoolError(#[from] deadpool_redis::PoolError),
 }
 
 #[derive(Clone)]
 pub struct WorkerState {
-    pub redis: redis::aio::ConnectionManager,
+    pub redis: deadpool_redis::Pool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -31,7 +33,7 @@ impl oxanus::Worker for WorkerRedisSet {
         &self,
         oxanus::WorkerContext { ctx, .. }: &oxanus::WorkerContext<WorkerState>,
     ) -> Result<(), WorkerError> {
-        let mut redis = ctx.redis.clone();
+        let mut redis = ctx.redis.get().await?;
         let _: () = redis.set_ex(&self.key, self.value.clone(), 3).await?;
         Ok(())
     }
@@ -46,7 +48,7 @@ impl oxanus::Queue for QueueOne {
     }
 }
 
-pub fn setup() -> redis::Client {
+pub fn setup() -> deadpool_redis::Pool {
     dotenvy::from_filename(".env.test").ok();
 
     tracing_subscriber::registry()
@@ -55,8 +57,17 @@ pub fn setup() -> redis::Client {
         .try_init()
         .ok();
 
+    redis_pool()
+}
+
+pub fn redis_pool() -> deadpool_redis::Pool {
     let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL is not set");
-    redis::Client::open(redis_url.clone()).expect("Failed to open Redis client")
+    let cfg = deadpool_redis::Config::from_url(redis_url);
+    let pool = cfg
+        .create_pool(Some(deadpool_redis::Runtime::Tokio1))
+        .expect("Failed to create Redis pool");
+
+    pool
 }
 
 pub fn random_string() -> String {
