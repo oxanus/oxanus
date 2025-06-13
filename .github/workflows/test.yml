@@ -35,3 +35,6 @@ jobs:
 
     - name: Run tests
       run: cargo nextest run
+
+    - name: Run benchmarks
+      run: cargo bench

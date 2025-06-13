@@ -1,3 +1,4 @@
+use deadpool_redis::PoolConfig;
 use serde::{Deserialize, Serialize};
 
 fn main() {
@@ -131,8 +132,23 @@ async fn execute(concurrency: usize, jobs_count: u64) -> Result<(), oxanus::Oxan
     Ok(())
 }
 
+fn redis_pool() -> deadpool_redis::Pool {
+    let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL is not set");
+    let mut cfg = deadpool_redis::Config::from_url(redis_url);
+    cfg.pool = Some(PoolConfig {
+        max_size: 512,
+        ..Default::default()
+    });
+    let pool = cfg
+        .create_pool(Some(deadpool_redis::Runtime::Tokio1))
+        .expect("Failed to create Redis pool");
+
+    pool
+}
+
 fn build_config(concurrency: usize) -> oxanus::Config<WorkerState, ServiceError> {
-    let storage = oxanus::Storage::from_env().expect("Failed to create storage");
+    dotenvy::from_filename(".env.test").ok();
+    let storage = oxanus::Storage::from_redis_pool(redis_pool());
     oxanus::Config::new(storage)
         .register_queue_with_concurrency::<QueueOne>(concurrency)
         .register_worker::<WorkerNoop>()
