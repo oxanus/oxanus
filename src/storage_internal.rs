@@ -74,9 +74,7 @@ impl StorageInternal {
 
     pub async fn queues(&self, pattern: &str) -> Result<HashSet<String>, OxanusError> {
         let mut conn = self.connection().await?;
-        let keys: Vec<String> = (*conn)
-            .keys(format!("{}:{}", self.keys.namespace, pattern))
-            .await?;
+        let keys: Vec<String> = (*conn).keys(self.namespace_queue(pattern)).await?;
         Ok(keys.into_iter().collect())
     }
 
@@ -100,10 +98,7 @@ impl StorageInternal {
                 deadpool_redis::redis::ExpireOption::NONE,
                 &envelope.id,
             )
-            .lpush(
-                format!("{}:{}", self.keys.namespace, envelope.job.queue),
-                &envelope.id,
-            )
+            .lpush(self.namespace_queue(&envelope.job.queue), &envelope.id)
             .query_async(&mut *redis)
             .await?;
 
@@ -206,7 +201,7 @@ impl StorageInternal {
         let mut redis = self.connection().await?;
         let job_id: Option<String> = redis
             .blmove(
-                format!("{}:{}", self.keys.namespace, queue),
+                self.namespace_queue(queue),
                 self.current_processing_queue(),
                 redis::Direction::Right,
                 redis::Direction::Left,
@@ -220,7 +215,7 @@ impl StorageInternal {
         let mut redis = self.connection().await?;
         let job_id: Option<String> = redis
             .lmove(
-                format!("{}:{}", self.keys.namespace, queue),
+                self.namespace_queue(queue),
                 self.current_processing_queue(),
                 redis::Direction::Right,
                 redis::Direction::Left,
@@ -320,9 +315,7 @@ impl StorageInternal {
                 .map(|envelope| envelope.id.as_str())
                 .collect();
 
-            let _: i32 = redis
-                .lpush(format!("{}:{}", self.keys.namespace, queue), job_ids)
-                .await?;
+            let _: i32 = redis.lpush(self.namespace_queue(queue), job_ids).await?;
         }
 
         let _: i32 = redis.zrembyscore(schedule_queue, 0, now).await?;
@@ -332,9 +325,7 @@ impl StorageInternal {
 
     pub async fn enqueued_count(&self, queue: &str) -> Result<usize, OxanusError> {
         let mut redis = self.connection().await?;
-        let count: i64 = (*redis)
-            .llen(format!("{}:{}", self.keys.namespace, queue))
-            .await?;
+        let count: i64 = (*redis).llen(self.namespace_queue(queue)).await?;
         Ok(count as usize)
     }
 
@@ -541,5 +532,13 @@ impl StorageInternal {
             .unwrap_or_else(|_| "unknown".to_string());
         let pid = std::process::id();
         format!("{}-{}", hostname, pid)
+    }
+
+    fn namespace_queue(&self, queue: &str) -> String {
+        if queue.starts_with(self.keys.namespace.as_str()) {
+            queue.to_string()
+        } else {
+            format!("{}:{}", self.keys.namespace, queue)
+        }
     }
 }

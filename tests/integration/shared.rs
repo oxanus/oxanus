@@ -18,6 +18,19 @@ pub struct WorkerState {
     pub redis: deadpool_redis::Pool,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct WorkerNoop {}
+
+#[async_trait::async_trait]
+impl oxanus::Worker for WorkerNoop {
+    type Context = ();
+    type Error = WorkerError;
+
+    async fn process(&self, _: &oxanus::Context<()>) -> Result<(), WorkerError> {
+        Ok(())
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WorkerRedisSet {
     pub key: String,
@@ -62,7 +75,15 @@ pub fn setup() -> deadpool_redis::Pool {
 
 pub fn redis_pool() -> deadpool_redis::Pool {
     let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL is not set");
-    let cfg = deadpool_redis::Config::from_url(redis_url);
+    let mut cfg = deadpool_redis::Config::from_url(redis_url);
+    cfg.pool = Some(deadpool_redis::PoolConfig {
+        timeouts: deadpool_redis::Timeouts {
+            wait: Some(std::time::Duration::from_millis(50)),
+            create: Some(std::time::Duration::from_millis(50)),
+            recycle: Some(std::time::Duration::from_millis(50)),
+        },
+        ..Default::default()
+    });
     let pool = cfg
         .create_pool(Some(deadpool_redis::Runtime::Tokio1))
         .expect("Failed to create Redis pool");

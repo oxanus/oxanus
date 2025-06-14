@@ -2,16 +2,13 @@ use serde::{Deserialize, Serialize};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 #[derive(Debug, thiserror::Error)]
-pub enum WorkerError {
-    #[error("Generic error: {0}")]
-    GenericError(String),
-}
+enum WorkerError {}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct WorkerState {}
+struct WorkerState {}
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-pub struct TestWorker {}
+struct TestWorker {}
 
 #[async_trait::async_trait]
 impl oxanus::Worker for TestWorker {
@@ -28,7 +25,7 @@ impl oxanus::Worker for TestWorker {
 }
 
 #[derive(Serialize)]
-pub struct QueueOne;
+struct QueueOne;
 
 impl oxanus::Queue for QueueOne {
     fn to_config() -> oxanus::QueueConfig {

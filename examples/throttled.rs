@@ -80,44 +80,7 @@ impl oxanus::Worker for WorkerInstant2 {
 }
 
 #[derive(Serialize)]
-struct QueueOne;
-
-#[derive(Serialize)]
-struct QueueTwo(Animal, i32);
-
-#[derive(Serialize)]
 struct QueueThrottled;
-
-#[derive(Debug, Serialize)]
-enum Animal {
-    Dog,
-    Cat,
-    Bird,
-}
-
-impl oxanus::Queue for QueueOne {
-    fn to_config() -> oxanus::QueueConfig {
-        oxanus::QueueConfig {
-            kind: oxanus::QueueKind::Static {
-                key: "one".to_string(),
-            },
-            concurrency: 1,
-            throttle: None,
-        }
-    }
-}
-
-impl oxanus::Queue for QueueTwo {
-    fn to_config() -> oxanus::QueueConfig {
-        oxanus::QueueConfig {
-            kind: oxanus::QueueKind::Dynamic {
-                prefix: "two".to_string(),
-            },
-            concurrency: 1,
-            throttle: None,
-        }
-    }
-}
 
 impl oxanus::Queue for QueueThrottled {
     fn to_config() -> oxanus::QueueConfig {
@@ -127,8 +90,8 @@ impl oxanus::Queue for QueueThrottled {
             },
             concurrency: 1,
             throttle: Some(oxanus::QueueThrottle {
-                limit: 1,
-                window_ms: 1500,
+                limit: 2,
+                window_ms: 2000,
             }),
         }
     }
@@ -143,60 +106,19 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
     let ctx = oxanus::Context::value(WorkerState {});
     let storage = oxanus::Storage::builder().from_env()?.build()?;
     let config = oxanus::Config::new(&storage.clone())
-        .register_queue::<QueueOne>()
-        .register_queue::<QueueTwo>()
         .register_queue::<QueueThrottled>()
-        .register_worker::<Worker1Sec>()
-        .register_worker::<Worker2Sec>()
         .register_worker::<WorkerInstant>()
         .register_worker::<WorkerInstant2>()
-        .exit_when_processed(13);
+        .exit_when_processed(8);
 
-    storage
-        .enqueue(
-            QueueOne,
-            Worker1Sec {
-                id: 1,
-                payload: "test".to_string(),
-            },
-        )
-        .await?;
-    storage
-        .enqueue(QueueTwo(Animal::Dog, 1), Worker2Sec { id: 2, foo: 42 })
-        .await?;
-    storage
-        .enqueue(
-            QueueOne,
-            Worker1Sec {
-                id: 3,
-                payload: "test".to_string(),
-            },
-        )
-        .await?;
-    storage
-        .enqueue(QueueTwo(Animal::Cat, 2), Worker2Sec { id: 4, foo: 44 })
-        .await?;
-    storage
-        .enqueue_in(
-            QueueOne,
-            Worker1Sec {
-                id: 4,
-                payload: "test".to_string(),
-            },
-            3,
-        )
-        .await?;
-    storage
-        .enqueue_in(QueueTwo(Animal::Bird, 7), Worker2Sec { id: 5, foo: 44 }, 6)
-        .await?;
-    storage
-        .enqueue_in(QueueTwo(Animal::Bird, 7), Worker2Sec { id: 5, foo: 44 }, 15)
-        .await?;
     storage.enqueue(QueueThrottled, WorkerInstant {}).await?;
     storage.enqueue(QueueThrottled, WorkerInstant2 {}).await?;
     storage.enqueue(QueueThrottled, WorkerInstant {}).await?;
     storage.enqueue(QueueThrottled, WorkerInstant {}).await?;
     storage.enqueue(QueueThrottled, WorkerInstant2 {}).await?;
+    storage.enqueue(QueueThrottled, WorkerInstant {}).await?;
+    storage.enqueue(QueueThrottled, WorkerInstant {}).await?;
+    storage.enqueue(QueueThrottled, WorkerInstant {}).await?;
 
     oxanus::run(config, ctx).await?;
 

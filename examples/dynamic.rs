@@ -4,13 +4,11 @@ use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 #[derive(Debug, thiserror::Error)]
 enum WorkerError {}
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 struct WorkerState {}
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Worker2Sec {
-    id: usize,
-}
+struct Worker2Sec {}
 
 #[async_trait::async_trait]
 impl oxanus::Worker for Worker2Sec {
@@ -24,20 +22,23 @@ impl oxanus::Worker for Worker2Sec {
         tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
         Ok(())
     }
-
-    fn unique_id(&self) -> Option<String> {
-        Some(format!("worker2sec:{}", self.id))
-    }
 }
 
 #[derive(Serialize)]
-struct QueueOne;
+struct QueueDynamic(Animal, i32);
 
-impl oxanus::Queue for QueueOne {
+#[derive(Debug, Serialize)]
+enum Animal {
+    Dog,
+    Cat,
+    Bird,
+}
+
+impl oxanus::Queue for QueueDynamic {
     fn to_config() -> oxanus::QueueConfig {
         oxanus::QueueConfig {
-            kind: oxanus::QueueKind::Static {
-                key: "one".to_string(),
+            kind: oxanus::QueueKind::Dynamic {
+                prefix: "two".to_string(),
             },
             concurrency: 1,
             throttle: None,
@@ -54,13 +55,26 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
 
     let ctx = oxanus::Context::value(WorkerState {});
     let storage = oxanus::Storage::builder().from_env()?.build()?;
-    let config = oxanus::Config::new(&storage)
-        .register_queue::<QueueOne>()
-        .register_worker::<Worker2Sec>();
+    let config = oxanus::Config::new(&storage.clone())
+        .register_queue::<QueueDynamic>()
+        .register_worker::<Worker2Sec>()
+        .exit_when_processed(5);
 
-    storage.enqueue(QueueOne, Worker2Sec { id: 1 }).await?;
-    storage.enqueue(QueueOne, Worker2Sec { id: 1 }).await?;
-    storage.enqueue(QueueOne, Worker2Sec { id: 2 }).await?;
+    storage
+        .enqueue(QueueDynamic(Animal::Cat, 2), Worker2Sec {})
+        .await?;
+    storage
+        .enqueue(QueueDynamic(Animal::Dog, 1), Worker2Sec {})
+        .await?;
+    storage
+        .enqueue(QueueDynamic(Animal::Cat, 2), Worker2Sec {})
+        .await?;
+    storage
+        .enqueue(QueueDynamic(Animal::Bird, 1), Worker2Sec {})
+        .await?;
+    storage
+        .enqueue(QueueDynamic(Animal::Dog, 1), Worker2Sec {})
+        .await?;
 
     oxanus::run(config, ctx).await?;
 

@@ -259,7 +259,11 @@ where
         .storage
         .internal
         .retry_loop(config.cancel_token.clone())
-        .await
+        .await?;
+
+    tracing::trace!("Retry loop finished");
+
+    Ok(())
 }
 
 async fn schedule_loop<DT, ET>(config: Arc<Config<DT, ET>>) -> Result<(), OxanusError>
@@ -271,7 +275,11 @@ where
         .storage
         .internal
         .schedule_loop(config.cancel_token.clone())
-        .await
+        .await?;
+
+    tracing::trace!("Schedule loop finished");
+
+    Ok(())
 }
 
 async fn ping_loop<DT, ET>(config: Arc<Config<DT, ET>>) -> Result<(), OxanusError>
@@ -283,7 +291,11 @@ where
         .storage
         .internal
         .ping_loop(config.cancel_token.clone())
-        .await
+        .await?;
+
+    tracing::trace!("Ping loop finished");
+
+    Ok(())
 }
 
 async fn resurrect_loop<DT, ET>(config: Arc<Config<DT, ET>>) -> Result<(), OxanusError>
@@ -295,7 +307,11 @@ where
         .storage
         .internal
         .resurrect_loop(config.cancel_token.clone())
-        .await
+        .await?;
+
+    tracing::trace!("Resurrect loop finished");
+
+    Ok(())
 }
 
 async fn cron_loop<DT, ET>(config: Arc<Config<DT, ET>>) -> Result<(), OxanusError>
@@ -322,6 +338,10 @@ async fn cron_job_loop(
     cron_job: CronJob,
 ) -> Result<(), OxanusError> {
     storage
-        .cron_job_loop(cancel_token, job_name, cron_job)
-        .await
+        .cron_job_loop(cancel_token, job_name.clone(), cron_job)
+        .await?;
+
+    tracing::trace!("Cron job loop finished for {}", job_name);
+
+    Ok(())
 }
