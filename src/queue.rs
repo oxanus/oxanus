@@ -21,7 +21,7 @@ pub struct QueueConfig {
 }
 
 impl QueueConfig {
-    pub fn prefix(prefix: &str) -> Self {
+    pub fn as_dynamic(prefix: &str) -> Self {
         Self {
             kind: QueueKind::Dynamic {
                 prefix: prefix.to_string(),
@@ -31,11 +31,7 @@ impl QueueConfig {
         }
     }
 
-    pub fn dynamic(prefix: &str) -> Self {
-        Self::prefix(prefix)
-    }
-
-    pub fn key(key: &str) -> Self {
+    pub fn as_static(key: &str) -> Self {
         Self {
             kind: QueueKind::Static {
                 key: key.to_string(),

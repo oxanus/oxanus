@@ -32,7 +32,7 @@ pub struct QueueOne;
 
 impl oxanus::Queue for QueueOne {
     fn to_config() -> oxanus::QueueConfig {
-        oxanus::QueueConfig::key("one")
+        oxanus::QueueConfig::as_static("one")
     }
 }
 

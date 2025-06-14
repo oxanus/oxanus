@@ -38,6 +38,40 @@ use crate::result_collector::Stats;
 use crate::storage_internal::StorageInternal;
 use crate::worker_registry::CronJob;
 
+/// Runs the Oxanus worker system with the given configuration and context.
+///
+/// This is the main entry point for running Oxanus workers. It sets up all necessary
+/// background tasks and starts processing jobs from the configured queues.
+///
+/// # Arguments
+///
+/// * `config` - The worker configuration, including queue and worker registrations
+/// * `ctx` - The context value that will be shared across all worker instances
+///
+/// # Returns
+///
+/// Returns statistics about the worker run, or an [`OxanusError`] if the operation fails.
+///
+/// # Examples
+///
+/// ```rust
+/// use oxanus::{Config, Context, Storage, Queue, Worker};
+///
+/// async fn run_worker() -> Result<(), oxanus::OxanusError> {
+///     let ctx = Context::value(MyContext {});
+///     let storage = Storage::builder().from_env()?.build()?;
+///     
+///     let config = Config::new(&storage)
+///         .register_queue::<MyQueue>()
+///         .register_worker::<MyWorker>()
+///         .with_graceful_shutdown(tokio::signal::ctrl_c());
+///     
+///     let stats = oxanus::run(config, ctx).await?;
+///     println!("Processed {} jobs", stats.processed);
+///     
+///     Ok(())
+/// }
+/// ```
 pub async fn run<DT, ET>(
     config: Config<DT, ET>,
     ctx: ContextValue<DT>,
