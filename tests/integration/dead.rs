@@ -1,4 +1,3 @@
-use oxanus::Queue;
 use serde::{Deserialize, Serialize};
 use testresult::TestResult;
 
@@ -34,20 +33,23 @@ impl oxanus::Worker for WorkerFail {
 pub async fn test_dead() -> TestResult {
     let redis_pool = setup();
     let ctx = oxanus::Context::value(());
-    let storage = oxanus::Storage::from_redis_pool(redis_pool.clone()).namespace(random_string());
-    let config = oxanus::Config::new(storage.clone())
+    let storage = oxanus::Storage::builder()
+        .from_redis_pool(redis_pool.clone())
+        .namespace(random_string())
+        .build()?;
+    let config = oxanus::Config::new(&storage)
         .register_queue::<QueueOne>()
         .register_worker::<WorkerFail>()
         .exit_when_processed(1);
 
-    oxanus::enqueue(&storage, QueueOne, WorkerFail {}).await?;
+    storage.enqueue(QueueOne, WorkerFail {}).await?;
 
-    assert_eq!(storage.enqueued_count(&QueueOne.key()).await?, 1);
+    assert_eq!(storage.enqueued_count(QueueOne).await?, 1);
 
     oxanus::run(config, ctx).await?;
 
     assert_eq!(storage.dead_count().await?, 1);
-    assert_eq!(storage.enqueued_count(&QueueOne.key()).await?, 0);
+    assert_eq!(storage.enqueued_count(QueueOne).await?, 0);
 
     Ok(())
 }

@@ -20,4 +20,6 @@ pub enum OxanusError {
     DeadpoolRedisPoolError(#[from] deadpool_redis::PoolError),
     #[error("Deadpool Redis create pool error: {0}")]
     DeadpoolRedisCreatePoolError(#[from] deadpool_redis::CreatePoolError),
+    #[error("Redis not configured")]
+    ConfigRedisNotConfigured,
 }

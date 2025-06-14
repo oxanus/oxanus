@@ -113,7 +113,10 @@ async fn setup(
     sleep_ms: u64,
 ) -> Result<(), oxanus::OxanusError> {
     for _ in 0..jobs_count {
-        oxanus::enqueue(&config.storage, QueueOne, WorkerNoop { sleep_ms }).await?;
+        config
+            .storage
+            .enqueue(QueueOne, WorkerNoop { sleep_ms })
+            .await?;
     }
 
     Ok(())
@@ -148,8 +151,11 @@ fn redis_pool() -> deadpool_redis::Pool {
 
 fn build_config(concurrency: usize) -> oxanus::Config<WorkerState, ServiceError> {
     dotenvy::from_filename(".env.test").ok();
-    let storage = oxanus::Storage::from_redis_pool(redis_pool());
-    oxanus::Config::new(storage)
+    let storage = oxanus::Storage::builder()
+        .from_redis_pool(redis_pool())
+        .build()
+        .expect("Failed to build storage");
+    oxanus::Config::new(&storage)
         .register_queue_with_concurrency::<QueueOne>(concurrency)
         .register_worker::<WorkerNoop>()
 }

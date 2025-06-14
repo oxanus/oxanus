@@ -1,5 +1,4 @@
 use deadpool_redis::redis::AsyncCommands;
-use oxanus::Queue;
 use serde::{Deserialize, Serialize};
 use testresult::TestResult;
 
@@ -51,8 +50,11 @@ pub async fn test_retry() -> TestResult {
         redis: redis_pool.clone(),
     });
 
-    let storage = oxanus::Storage::from_redis_pool(redis_pool.clone()).namespace(random_string());
-    let config = oxanus::Config::new(storage.clone())
+    let storage = oxanus::Storage::builder()
+        .from_redis_pool(redis_pool.clone())
+        .namespace(random_string())
+        .build()?;
+    let config = oxanus::Config::new(&storage)
         .register_queue::<QueueOne>()
         .register_worker::<WorkerRedisSetWithRetry>()
         .exit_when_processed(2);
@@ -61,18 +63,18 @@ pub async fn test_retry() -> TestResult {
     let random_value_first = uuid::Uuid::new_v4().to_string();
     let random_value_second = uuid::Uuid::new_v4().to_string();
 
-    oxanus::enqueue(
-        &storage,
-        QueueOne,
-        WorkerRedisSetWithRetry {
-            key: random_key.clone(),
-            value_first: random_value_first.clone(),
-            value_second: random_value_second.clone(),
-        },
-    )
-    .await?;
+    storage
+        .enqueue(
+            QueueOne,
+            WorkerRedisSetWithRetry {
+                key: random_key.clone(),
+                value_first: random_value_first.clone(),
+                value_second: random_value_second.clone(),
+            },
+        )
+        .await?;
 
-    assert_eq!(storage.enqueued_count(&QueueOne.key()).await?, 1);
+    assert_eq!(storage.enqueued_count(QueueOne).await?, 1);
 
     oxanus::run(config, ctx).await?;
 
@@ -80,7 +82,7 @@ pub async fn test_retry() -> TestResult {
 
     assert_eq!(value, Some(random_value_second));
     assert_eq!(storage.dead_count().await?, 0);
-    assert_eq!(storage.enqueued_count(&QueueOne.key()).await?, 0);
+    assert_eq!(storage.enqueued_count(QueueOne).await?, 0);
 
     Ok(())
 }

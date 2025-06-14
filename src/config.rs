@@ -1,30 +1,30 @@
 use std::pin::Pin;
 use tokio_util::sync::CancellationToken;
 
+use crate::Storage;
 use crate::queue::{Queue, QueueConfig};
-use crate::storage::Storage;
 use crate::worker::Worker;
 use crate::worker_registry::WorkerRegistry;
 
 pub struct Config<DT, ET> {
-    pub registry: WorkerRegistry<DT, ET>,
-    pub queues: Vec<QueueConfig>,
-    pub exit_when_processed: Option<u64>,
-    pub shutdown_signal:
-        Pin<Box<dyn Future<Output = Result<(), std::io::Error>> + Send + Sync + 'static>>,
-    pub cancel_token: CancellationToken,
+    pub(crate) registry: WorkerRegistry<DT, ET>,
+    pub(crate) queues: Vec<QueueConfig>,
+    pub(crate) exit_when_processed: Option<u64>,
+    pub(crate) shutdown_signal:
+        Pin<Box<dyn Future<Output = Result<(), std::io::Error>> + Send + Sync>>,
+    pub(crate) cancel_token: CancellationToken,
     pub storage: Storage,
 }
 
 impl<DT, ET> Config<DT, ET> {
-    pub fn new(storage: Storage) -> Self {
+    pub fn new(storage: &Storage) -> Self {
         Self {
             registry: WorkerRegistry::new(),
             queues: Vec::new(),
             exit_when_processed: None,
             shutdown_signal: Box::pin(default_shutdown_signal()),
             cancel_token: CancellationToken::new(),
-            storage,
+            storage: storage.clone(),
         }
     }
 
@@ -56,7 +56,7 @@ impl<DT, ET> Config<DT, ET> {
 
     pub fn register_cron_worker<T>(mut self, schedule: &str, queue: impl Queue) -> Self
     where
-        T: Worker<Context = DT, Error = ET> + serde::de::DeserializeOwned + 'static + Default,
+        T: Worker<Context = DT, Error = ET> + serde::de::DeserializeOwned + 'static,
     {
         self.registry.register_cron::<T>(schedule, queue.key());
         self

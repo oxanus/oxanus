@@ -44,8 +44,8 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
         .init();
 
     let ctx = oxanus::Context::value(WorkerState {});
-    let storage = oxanus::Storage::from_env()?;
-    let config = oxanus::Config::new(storage.clone())
+    let storage = oxanus::Storage::builder().from_env()?.build()?;
+    let config = oxanus::Config::new(&storage)
         .register_queue::<QueueOne>()
         .register_cron_worker::<TestWorker>("*/5 * * * * *", QueueOne)
         .with_graceful_shutdown(tokio::signal::ctrl_c());

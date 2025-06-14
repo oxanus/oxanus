@@ -9,6 +9,8 @@ mod queue;
 mod result_collector;
 mod semaphores_map;
 mod storage;
+mod storage_builder;
+mod storage_internal;
 mod throttler;
 mod worker;
 mod worker_event;
@@ -23,13 +25,17 @@ use tokio_util::sync::CancellationToken;
 
 pub use crate::config::Config;
 pub use crate::context::Context;
-use crate::context::ContextValue;
 pub use crate::error::OxanusError;
-pub use crate::job_envelope::{Job, JobEnvelope, JobId};
+pub use crate::job_envelope::JobId;
 pub use crate::queue::{Queue, QueueConfig, QueueKind, QueueThrottle};
-pub use crate::result_collector::Stats;
 pub use crate::storage::Storage;
+pub use crate::storage_builder::StorageBuilder;
 pub use crate::worker::Worker;
+
+use crate::context::ContextValue;
+use crate::job_envelope::JobEnvelope;
+use crate::result_collector::Stats;
+use crate::storage_internal::StorageInternal;
 use crate::worker_registry::CronJob;
 
 pub async fn run<DT, ET>(
@@ -42,7 +48,7 @@ where
 {
     tracing::info!(
         "Starting worker (namespace: {})",
-        config.storage.get_namespace()
+        config.storage.namespace()
     );
 
     let mut config = config;
@@ -91,7 +97,11 @@ where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
-    config.storage.retry_loop(config.cancel_token.clone()).await
+    config
+        .storage
+        .internal
+        .retry_loop(config.cancel_token.clone())
+        .await
 }
 
 async fn schedule_loop<DT, ET>(config: Arc<Config<DT, ET>>) -> Result<(), OxanusError>
@@ -101,6 +111,7 @@ where
 {
     config
         .storage
+        .internal
         .schedule_loop(config.cancel_token.clone())
         .await
 }
@@ -110,7 +121,11 @@ where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
-    config.storage.ping_loop(config.cancel_token.clone()).await
+    config
+        .storage
+        .internal
+        .ping_loop(config.cancel_token.clone())
+        .await
 }
 
 async fn resurrect_loop<DT, ET>(config: Arc<Config<DT, ET>>) -> Result<(), OxanusError>
@@ -120,6 +135,7 @@ where
 {
     config
         .storage
+        .internal
         .resurrect_loop(config.cancel_token.clone())
         .await
 }
@@ -131,7 +147,7 @@ where
 {
     for (name, cron_job) in &config.registry.schedules {
         tokio::spawn(cron_job_loop(
-            config.storage.clone(),
+            config.storage.internal.clone(),
             config.cancel_token.clone(),
             name.clone(),
             cron_job.clone(),
@@ -142,7 +158,7 @@ where
 }
 
 async fn cron_job_loop(
-    storage: Storage,
+    storage: StorageInternal,
     cancel_token: CancellationToken,
     job_name: String,
     cron_job: CronJob,
@@ -150,39 +166,4 @@ async fn cron_job_loop(
     storage
         .cron_job_loop(cancel_token, job_name, cron_job)
         .await
-}
-
-pub async fn enqueue<T, DT, ET>(
-    storage: &Storage,
-    queue: impl Queue,
-    job: T,
-) -> Result<JobId, OxanusError>
-where
-    T: Worker<Context = DT, Error = ET> + serde::Serialize,
-    DT: Send + Sync + Clone + 'static,
-    ET: std::error::Error + Send + Sync + 'static,
-{
-    enqueue_in(storage, queue, job, 0).await
-}
-
-pub async fn enqueue_in<T, DT, ET>(
-    storage: &Storage,
-    queue: impl Queue,
-    job: T,
-    delay: u64,
-) -> Result<JobId, OxanusError>
-where
-    T: Worker<Context = DT, Error = ET> + serde::Serialize,
-    DT: Send + Sync + Clone + 'static,
-    ET: std::error::Error + Send + Sync + 'static,
-{
-    let envelope = JobEnvelope::new(queue.key().clone(), job)?;
-
-    tracing::trace!("Enqueuing job: {:?}", envelope);
-
-    if delay > 0 {
-        storage.enqueue_in(envelope, delay).await
-    } else {
-        storage.enqueue(envelope).await
-    }
 }

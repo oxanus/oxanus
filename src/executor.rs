@@ -45,11 +45,13 @@ where
         if envelope.meta.retries < max_retries {
             config
                 .storage
+                .internal
                 .finish_with_failure(&envelope)
                 .await
                 .expect("Failed to finish job");
             config
                 .storage
+                .internal
                 .retry_in(envelope, retry_delay)
                 .await
                 .expect("Failed to retry job");
@@ -57,6 +59,7 @@ where
             tracing::error!("Job {} failed after {} retries", envelope.id, max_retries);
             config
                 .storage
+                .internal
                 .kill(&envelope)
                 .await
                 .expect("Failed to kill job");
@@ -64,6 +67,7 @@ where
     } else {
         config
             .storage
+            .internal
             .finish_with_success(&envelope)
             .await
             .expect("Failed to finish job");

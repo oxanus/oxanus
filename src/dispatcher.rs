@@ -7,7 +7,7 @@ use crate::Config;
 use crate::error::OxanusError;
 use crate::queue::{QueueConfig, QueueThrottle};
 use crate::semaphores_map::SemaphoresMap;
-use crate::storage::Storage;
+use crate::storage_internal::StorageInternal;
 use crate::throttler::Throttler;
 use crate::worker_event::WorkerJob;
 
@@ -26,7 +26,7 @@ pub async fn run<DT, ET>(
         let permit = semaphore.acquire_owned().await.unwrap();
 
         tokio::select! {
-            result = pop_queue_message(&config.storage, &queue_config, &queue_key) => {
+            result = pop_queue_message(&config.storage.internal, &queue_config, &queue_key) => {
                 let job_id = result.expect("Failed to pop queue message");
                 let job = WorkerJob { job_id, permit };
                 job_tx
@@ -44,7 +44,7 @@ pub async fn run<DT, ET>(
 }
 
 async fn pop_queue_message(
-    storage: &Storage,
+    storage: &StorageInternal,
     queue_config: &QueueConfig,
     queue_key: &str,
 ) -> Result<String, OxanusError> {
@@ -55,7 +55,7 @@ async fn pop_queue_message(
 }
 
 async fn pop_queue_message_wo_throttle(
-    storage: &Storage,
+    storage: &StorageInternal,
     queue_key: &str,
     timeout: f64,
 ) -> Result<String, OxanusError> {
@@ -67,7 +67,7 @@ async fn pop_queue_message_wo_throttle(
 }
 
 async fn pop_queue_message_w_throttle(
-    storage: &Storage,
+    storage: &StorageInternal,
     queue_key: &str,
     throttle: &QueueThrottle,
 ) -> Result<String, OxanusError> {

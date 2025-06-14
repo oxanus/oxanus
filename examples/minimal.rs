@@ -52,15 +52,17 @@ pub async fn main() -> Result<(), oxanus::OxanusError> {
         .init();
 
     let ctx = oxanus::Context::value(WorkerState {});
-    let storage = oxanus::Storage::from_env()?;
-    let config = oxanus::Config::new(storage.clone())
+    let storage = oxanus::Storage::builder().from_env()?.build()?;
+    let config = oxanus::Config::new(&storage)
         .register_queue::<QueueOne>()
         .register_worker::<TestWorker>()
         .with_graceful_shutdown(tokio::signal::ctrl_c())
         .exit_when_processed(1);
 
-    oxanus::enqueue(&storage, QueueOne, TestWorker { sleep_s: 10 }).await?;
-    oxanus::enqueue(&storage, QueueOne, TestWorker { sleep_s: 5 }).await?;
+    storage
+        .enqueue(QueueOne, TestWorker { sleep_s: 10 })
+        .await?;
+    storage.enqueue(QueueOne, TestWorker { sleep_s: 5 }).await?;
 
     oxanus::run(config, ctx).await?;
 

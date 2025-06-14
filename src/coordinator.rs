@@ -75,12 +75,13 @@ async fn process_job<DT, ET>(
 {
     tracing::trace!("Processing job: {:?}", job_event);
 
-    let envelope: JobEnvelope = match config.storage.get(&job_event.job_id).await {
+    let envelope: JobEnvelope = match config.storage.internal.get(&job_event.job_id).await {
         Ok(Some(envelope)) => envelope,
         Ok(None) => {
             tracing::warn!("Job {} not found", job_event.job_id);
             config
                 .storage
+                .internal
                 .delete(&job_event.job_id)
                 .await
                 .expect("Failed to delete job");
@@ -102,6 +103,7 @@ async fn process_job<DT, ET>(
             println!("Invalid job: {} - {}", &envelope.job.name, e);
             config
                 .storage
+                .internal
                 .kill(&envelope)
                 .await
                 .expect("Failed to kill job");
@@ -133,6 +135,7 @@ async fn run_queue_watcher<DT, ET>(
             QueueKind::Static { key } => HashSet::from([key.clone()]),
             QueueKind::Dynamic { prefix } => config
                 .storage
+                .internal
                 .queues(&format!("{}*", prefix))
                 .await
                 .unwrap(),

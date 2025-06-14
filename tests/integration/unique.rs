@@ -1,4 +1,3 @@
-use oxanus::Queue;
 use serde::{Deserialize, Serialize};
 use testresult::TestResult;
 
@@ -38,24 +37,26 @@ impl oxanus::Worker for WorkerUnique {
 pub async fn test_unique() -> TestResult {
     let redis_pool = setup();
     let ctx = oxanus::Context::value(());
-    let storage = oxanus::Storage::from_redis_pool(redis_pool.clone()).namespace(random_string());
-    let config = oxanus::Config::new(storage.clone())
+    let storage = oxanus::Storage::builder()
+        .from_redis_pool(redis_pool.clone())
+        .namespace(random_string())
+        .build()?;
+    let config = oxanus::Config::new(&storage)
         .register_queue::<QueueOne>()
         .register_worker::<WorkerUnique>()
         .exit_when_processed(2);
 
-    oxanus::enqueue(&storage, QueueOne, WorkerUnique { id: 1 }).await?;
-    oxanus::enqueue(&storage, QueueOne, WorkerUnique { id: 1 }).await?;
-    oxanus::enqueue(&storage, QueueOne, WorkerUnique { id: 2 }).await?;
-    oxanus::enqueue(&storage, QueueOne, WorkerUnique { id: 2 }).await?;
-    oxanus::enqueue(&storage, QueueOne, WorkerUnique { id: 2 }).await?;
+    storage.enqueue(QueueOne, WorkerUnique { id: 1 }).await?;
+    storage.enqueue(QueueOne, WorkerUnique { id: 1 }).await?;
+    storage.enqueue(QueueOne, WorkerUnique { id: 2 }).await?;
+    storage.enqueue(QueueOne, WorkerUnique { id: 2 }).await?;
 
-    assert_eq!(storage.enqueued_count(&QueueOne.key()).await?, 2);
+    assert_eq!(storage.enqueued_count(QueueOne).await?, 2);
 
     oxanus::run(config, ctx).await?;
 
     assert_eq!(storage.dead_count().await?, 0);
-    assert_eq!(storage.enqueued_count(&QueueOne.key()).await?, 0);
+    assert_eq!(storage.enqueued_count(QueueOne).await?, 0);
 
     Ok(())
 }
