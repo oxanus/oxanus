@@ -6,7 +6,7 @@
 
 <p align="center">
   <picture>
-    <img alt="Oxanus logo" src="logo.jpg" width="320">
+    <img alt="Oxanus logo" src="https://raw.githubusercontent.com/oxanus/oxanus/refs/heads/main/logo.jpg" width="320">
   </picture>
 </p>
 
@@ -25,42 +25,6 @@ Oxanus goes for simplity and depth over breadth. It only aims support single bac
 - **Resilient Jobs**: Jobs that can survive worker crashes and restarts
 - **Graceful Shutdown**: Clean shutdown of workers with in-progress job handling
 - **Periodic Jobs**: Run jobs on a schedule using cron-like expressions
-
-## Core Concepts
-
-### Workers
-
-Workers are the units of work in Oxanus. They implement the `Worker` trait and define the processing logic.
-
-### Queues
-
-Queues are the channels through which jobs flow. They can be:
-
-- Static: Defined at compile time
-- Dynamic: Created at runtime with each instance being a separate queue
-
-Each queue can have its own:
-
-- Concurrency limits
-- Throttling rules
-- Retry policies
-
-### Storage
-
-The `Storage` trait provides the interface for job persistence. It handles:
-
-- Job enqueueing
-- Job scheduling
-- Job state management
-- Queue monitoring
-
-### Context
-
-The `Context` provides shared state and utilities to workers. It can include:
-
-- Database connections
-- Configuration
-- Shared resources
 
 ## Quick Start
 
@@ -91,15 +55,12 @@ struct MyQueue;
 
 impl Queue for MyQueue {
     fn to_config() -> QueueConfig {
-        QueueConfig {
-            kind: QueueKind::Static {
-                key: "my_queue".to_string(),
-            },
-            concurrency: 2,
-            throttle: None,
-        }
+        QueueConfig::as_static("my_queue")
     }
 }
+
+// Define your context
+struct MyContext {}
 
 // Run your worker
 async fn run_worker() -> Result<(), OxanusError> {
@@ -107,8 +68,7 @@ async fn run_worker() -> Result<(), OxanusError> {
     let storage = Storage::builder().from_env()?.build()?;
     let config = Config::new(&storage)
         .register_queue::<MyQueue>()
-        .register_worker::<MyWorker>()
-        .with_graceful_shutdown(tokio::signal::ctrl_c());
+        .register_worker::<MyWorker>();
 
     // Enqueue some jobs
     storage.enqueue(MyQueue, MyWorker { data: "hello".into() }).await?;
@@ -120,3 +80,53 @@ async fn run_worker() -> Result<(), OxanusError> {
 ```
 
 For more detailed usage examples, check out the [examples directory](https://github.com/oxanus/oxanus/tree/main/examples).
+
+
+## Core Concepts
+
+### Workers
+
+Workers are the units of work in Oxanus. They implement the [`Worker`] trait and define the processing logic.
+
+### Queues
+
+Queues are the channels through which jobs flow. They can be:
+
+- Static: Defined at compile time
+- Dynamic: Created at runtime with each instance being a separate queue
+
+Each queue can have its own:
+
+- Concurrency limits
+- Throttling rules
+- Retry policies
+
+### Storage
+
+The [`Storage`] trait provides the interface for job persistence. It handles:
+
+- Job enqueueing
+- Job scheduling
+- Job state management
+- Queue monitoring
+
+### Context
+
+The context provides shared state and utilities to workers. It can include:
+
+- Database connections
+- Configuration
+- Shared resources
+
+### Configuration
+
+Configuration is done through the [`Config`] builder, which allows you to:
+
+- Register queues and workers
+- Set up graceful shutdown
+
+### Error Handling
+
+Oxanus uses a custom error type [`OxanusError`] that covers all possible error cases in the library.
+Workers can define their own error type that implements `std::error::Error`.
+
