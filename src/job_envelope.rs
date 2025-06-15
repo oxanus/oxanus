@@ -10,6 +10,7 @@ pub type JobId = String;
 pub struct JobEnvelope {
     pub id: JobId,
     pub job: Job,
+    pub queue: String,
     pub meta: JobMeta,
     pub queue: String,
 }
@@ -71,6 +72,7 @@ impl JobEnvelope {
     pub fn with_retries_incremented(self) -> Self {
         Self {
             id: self.id,
+            queue: self.queue,
             job: self.job,
             queue: self.queue,
             meta: JobMeta {

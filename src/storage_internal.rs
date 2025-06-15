@@ -261,6 +261,7 @@ impl StorageInternal {
         let _: () = redis::pipe()
             .hdel(&self.keys.jobs, &envelope.id)
             .lpush(&self.keys.dead, &serde_json::to_string(envelope)?)
+            .ltrim(&self.keys.dead, 0, 1000)
             .query_async(&mut redis)
             .await?;
         Ok(())
@@ -304,6 +305,7 @@ impl StorageInternal {
         let envelopes_count = envelopes.len();
 
         for envelope in envelopes.iter() {
+          
             map.entry(&envelope.queue).or_default().push(envelope);
         }
 
