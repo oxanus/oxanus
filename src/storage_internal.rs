@@ -98,7 +98,7 @@ impl StorageInternal {
                 deadpool_redis::redis::ExpireOption::NONE,
                 &envelope.id,
             )
-            .lpush(self.namespace_queue(&envelope.job.queue), &envelope.id)
+            .lpush(self.namespace_queue(&envelope.queue), &envelope.id)
             .query_async(&mut *redis)
             .await?;
 
