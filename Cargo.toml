@@ -9,6 +9,10 @@ description = "A simple & fast job queue system."
 doctest = false
 test = true
 
+[features]
+default = []
+sentry = ["sentry-core"]
+
 [dependencies]
 async-trait = "0.1"
 chrono = { version = "^0.4", features = ["serde"] }
@@ -16,6 +20,7 @@ cron = "^0.15"
 deadpool-redis = "^0.21"
 futures = { version = "^0.3" }
 gethostname = "^1.0"
+sentry-core = { version = "^0.39", optional = true }
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = { version = "^1.0", features = ["preserve_order"] }
 thiserror = "^2.0"

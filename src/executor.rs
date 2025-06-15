@@ -39,6 +39,11 @@ where
         "Job finished"
     );
 
+    #[cfg(feature = "sentry")]
+    if let Err(e) = &result {
+        sentry_core::capture_error(e);
+    }
+
     if is_err {
         let max_retries = worker.max_retries();
         let retry_delay = worker.retry_delay(envelope.meta.retries);
