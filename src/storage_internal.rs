@@ -6,7 +6,11 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::{JobEnvelope, OxanusError, job_envelope::JobId, worker_registry::CronJob};
+use crate::{
+    OxanusError,
+    job_envelope::{JobEnvelope, JobId},
+    worker_registry::CronJob,
+};
 
 const JOB_EXPIRE_TIME: i64 = 7 * 24 * 3600; // 7 days
 const RESURRECT_THRESHOLD_SECS: i64 = 5;

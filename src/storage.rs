@@ -1,6 +1,10 @@
 use crate::{
-    JobEnvelope, JobId, OxanusError, Queue, StorageInternal, Worker,
+    error::OxanusError,
+    job_envelope::{JobEnvelope, JobId},
+    queue::Queue,
     storage_builder::StorageBuilder,
+    storage_internal::StorageInternal,
+    worker::Worker,
 };
 
 /// Storage provides the main interface for job management in Oxanus.
@@ -15,13 +19,13 @@ use crate::{
 ///
 /// async fn example() -> Result<(), oxanus::OxanusError> {
 ///     let storage = Storage::builder().from_env()?.build()?;
-///     
+///
 ///     // Enqueue a job
 ///     storage.enqueue(MyQueue, MyWorker { data: "hello" }).await?;
-///     
+///
 ///     // Schedule a job for later
 ///     storage.enqueue_in(MyQueue, MyWorker { data: "delayed" }, 300).await?;
-///     
+///
 ///     Ok(())
 /// }
 /// ```

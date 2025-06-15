@@ -1,4 +1,4 @@
-use crate::{OxanusError, Storage, StorageInternal};
+use crate::{OxanusError, Storage, storage_internal::StorageInternal};
 
 pub struct StorageBuilder {
     namespace: Option<String>,
