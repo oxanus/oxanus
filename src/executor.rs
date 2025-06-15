@@ -38,10 +38,11 @@ where
         retries = envelope.meta.retries,
         "Job finished"
     );
-    let max_retries = worker.max_retries();
-    let retry_delay = worker.retry_delay(envelope.meta.retries);
 
     if is_err {
+        let max_retries = worker.max_retries();
+        let retry_delay = worker.retry_delay(envelope.meta.retries);
+
         if envelope.meta.retries < max_retries {
             config
                 .storage
