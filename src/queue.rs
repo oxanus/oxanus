@@ -6,7 +6,7 @@ pub trait Queue: Send + Sync + Serialize {
             QueueKind::Static { key } => key,
             QueueKind::Dynamic { prefix } => {
                 let value = serde_json::to_value(self).unwrap_or_default();
-                format!("{}:{}", prefix, value_to_queue_key(&value))
+                format!("{}:{}", prefix, value_to_queue_key(value))
             }
         }
     }
@@ -21,21 +21,19 @@ pub struct QueueConfig {
 }
 
 impl QueueConfig {
-    pub fn as_dynamic(prefix: &str) -> Self {
+    pub fn as_dynamic(prefix: impl Into<String>) -> Self {
         Self {
             kind: QueueKind::Dynamic {
-                prefix: prefix.to_string(),
+                prefix: prefix.into(),
             },
             concurrency: 1,
             throttle: None,
         }
     }
 
-    pub fn as_static(key: &str) -> Self {
+    pub fn as_static(key: impl Into<String>) -> Self {
         Self {
-            kind: QueueKind::Static {
-                key: key.to_string(),
-            },
+            kind: QueueKind::Static { key: key.into() },
             concurrency: 1,
             throttle: None,
         }
@@ -74,19 +72,19 @@ pub struct QueueThrottle {
     pub limit: u64,
 }
 
-fn value_to_queue_key(value: &serde_json::Value) -> String {
+fn value_to_queue_key(value: serde_json::Value) -> String {
     match value {
         serde_json::Value::Null => "".to_string(),
-        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::String(s) => s,
         serde_json::Value::Number(n) => n.to_string(),
         serde_json::Value::Bool(b) => b.to_string(),
         serde_json::Value::Array(a) => a
-            .iter()
+            .into_iter()
             .map(value_to_queue_key)
             .collect::<Vec<String>>()
             .join(":"),
         serde_json::Value::Object(object) => object
-            .iter()
+            .into_iter()
             .map(|(k, v)| format!(":{}={}", k, value_to_queue_key(v)))
             .collect::<Vec<String>>()
             .join(":"),
