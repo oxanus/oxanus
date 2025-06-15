@@ -1,10 +1,11 @@
 use serde::Serialize;
+use std::time::Duration;
 
 pub trait Queue: Send + Sync + Serialize {
     fn key(&self) -> String {
         match Self::to_config().kind {
             QueueKind::Static { key } => key,
-            QueueKind::Dynamic { prefix } => {
+            QueueKind::Dynamic { prefix, .. } => {
                 let value = serde_json::to_value(self).unwrap_or_default();
                 format!("{}:{}", prefix, value_to_queue_key(value))
             }
@@ -25,6 +26,7 @@ impl QueueConfig {
         Self {
             kind: QueueKind::Dynamic {
                 prefix: prefix.into(),
+                sleep_period: Duration::from_millis(500),
             },
             concurrency: 1,
             throttle: None,
@@ -52,8 +54,13 @@ impl QueueConfig {
 
 #[derive(Debug, Clone)]
 pub enum QueueKind {
-    Static { key: String },
-    Dynamic { prefix: String },
+    Static {
+        key: String,
+    },
+    Dynamic {
+        prefix: String,
+        sleep_period: Duration,
+    },
 }
 
 impl QueueKind {

@@ -133,7 +133,7 @@ async fn run_queue_watcher<DT, ET>(
     loop {
         let all_queues: HashSet<String> = match &queue_config.kind {
             QueueKind::Static { key } => HashSet::from([key.clone()]),
-            QueueKind::Dynamic { prefix } => config
+            QueueKind::Dynamic { prefix, .. } => config
                 .storage
                 .internal
                 .queues(&format!("{}*", prefix))
@@ -162,8 +162,8 @@ async fn run_queue_watcher<DT, ET>(
 
         if config.cancel_token.is_cancelled() {
             break;
-        } else if queue_config.kind.is_dynamic() {
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        } else if let QueueKind::Dynamic { sleep_period, .. } = queue_config.kind {
+            tokio::time::sleep(sleep_period).await;
         } else {
             break;
         }

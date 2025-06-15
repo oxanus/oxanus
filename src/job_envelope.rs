@@ -20,7 +20,7 @@ pub struct Job {
     pub args: serde_json::Value,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
 pub struct JobMeta {
     pub retries: u32,
     pub unique: bool,

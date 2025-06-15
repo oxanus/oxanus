@@ -36,13 +36,7 @@ enum Animal {
 
 impl oxanus::Queue for QueueDynamic {
     fn to_config() -> oxanus::QueueConfig {
-        oxanus::QueueConfig {
-            kind: oxanus::QueueKind::Dynamic {
-                prefix: "two".to_string(),
-            },
-            concurrency: 1,
-            throttle: None,
-        }
+        oxanus::QueueConfig::as_dynamic("two")
     }
 }
 

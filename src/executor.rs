@@ -24,7 +24,7 @@ where
     let start = std::time::Instant::now();
     let full_ctx = Context {
         ctx: ctx.0,
-        meta: envelope.meta.clone(),
+        meta: envelope.meta,
     };
     let result = worker.process(&full_ctx).await;
     let duration = start.elapsed();
