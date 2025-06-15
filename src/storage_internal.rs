@@ -305,9 +305,8 @@ impl StorageInternal {
         let envelopes_count = envelopes.len();
 
         for envelope in envelopes.iter() {
-            map.entry(envelope.queue.as_str())
-                .or_default()
-                .push(envelope);
+          
+            map.entry(&envelope.queue).or_default().push(envelope);
         }
 
         for (queue, envelopes) in map {
