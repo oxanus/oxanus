@@ -5,8 +5,10 @@ use tokio::sync::{Mutex, mpsc};
 use crate::config::Config;
 use crate::context::ContextValue;
 use crate::error::OxanusError;
+use crate::executor::ExecutionError;
 use crate::job_envelope::JobEnvelope;
 use crate::queue::{QueueConfig, QueueKind};
+use crate::result_collector::JobResultType;
 use crate::semaphores_map::SemaphoresMap;
 use crate::worker_event::WorkerJob;
 use crate::{
@@ -25,7 +27,7 @@ where
     ET: std::error::Error + Send + Sync + 'static,
 {
     let concurrency = queue_config.concurrency;
-    let (result_tx, result_rx) = mpsc::channel::<Result<(), ET>>(concurrency);
+    let (result_tx, result_rx) = mpsc::channel::<JobResultType>(concurrency);
     let (job_tx, mut job_rx) = mpsc::channel::<WorkerJob>(concurrency);
     let semaphores = Arc::new(SemaphoresMap::new(concurrency));
 
@@ -67,7 +69,7 @@ where
 async fn process_job<DT, ET>(
     config: Arc<Config<DT, ET>>,
     ctx: ContextValue<DT>,
-    result_tx: mpsc::Sender<Result<(), ET>>,
+    result_tx: mpsc::Sender<JobResultType>,
     job_event: WorkerJob,
 ) where
     DT: Send + Sync + Clone + 'static,
@@ -116,7 +118,16 @@ async fn process_job<DT, ET>(
         .await
         .expect("Failed to run job");
     drop(job_event.permit);
-    result_tx.send(result).await.ok();
+    result_tx
+        .send(match result {
+            Ok(()) => JobResultType::Success,
+            Err(e) => match e {
+                ExecutionError::NotPanic(_) => JobResultType::Failed,
+                ExecutionError::Panic() => JobResultType::Panicked,
+            },
+        })
+        .await
+        .ok();
 }
 
 async fn run_queue_watcher<DT, ET>(

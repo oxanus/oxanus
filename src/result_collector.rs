@@ -7,11 +7,18 @@ use crate::config::Config;
 pub struct Stats {
     pub processed: u64,
     pub succeeded: u64,
+    pub panicked: u64,
     pub failed: u64,
 }
 
+pub(crate) enum JobResultType {
+    Success,
+    Panicked,
+    Failed,
+}
+
 pub async fn run<DT, ET>(
-    mut rx: mpsc::Receiver<Result<(), ET>>,
+    mut rx: mpsc::Receiver<JobResultType>,
     config: Arc<Config<DT, ET>>,
     stats: Arc<Mutex<Stats>>,
 ) where
@@ -36,7 +43,7 @@ pub async fn run<DT, ET>(
 async fn update_stats<DT, ET>(
     config: Arc<Config<DT, ET>>,
     stats: Arc<Mutex<Stats>>,
-    result: Result<(), ET>,
+    result: JobResultType,
 ) where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
@@ -45,8 +52,12 @@ async fn update_stats<DT, ET>(
         let mut stats = stats.lock().await;
         stats.processed += 1;
         match result {
-            Ok(_) => stats.succeeded += 1,
-            Err(_e) => stats.failed += 1,
+            JobResultType::Success => stats.succeeded += 1,
+            JobResultType::Panicked => {
+                stats.panicked += 1;
+                stats.failed += 1;
+            }
+            JobResultType::Failed => stats.failed += 1,
         }
 
         stats.processed

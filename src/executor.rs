@@ -1,3 +1,5 @@
+use futures::FutureExt;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use crate::context::ContextValue;
@@ -5,12 +7,23 @@ use crate::job_envelope::JobEnvelope;
 use crate::worker::BoxedWorker;
 use crate::{Config, Context, OxanusError};
 
+#[derive(Debug)]
+enum ExecutionResult<ET> {
+    NotPanic(Result<(), ET>),
+    Panic(String),
+}
+
+pub(crate) enum ExecutionError<ET> {
+    NotPanic(ET),
+    Panic(),
+}
+
 pub async fn run<DT, ET>(
     config: Arc<Config<DT, ET>>,
     worker: BoxedWorker<DT, ET>,
     envelope: JobEnvelope,
     ctx: ContextValue<DT>,
-) -> Result<Result<(), ET>, OxanusError>
+) -> Result<Result<(), ExecutionError<ET>>, OxanusError>
 where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
@@ -26,9 +39,29 @@ where
         ctx: ctx.0,
         meta: envelope.meta,
     };
-    let result = worker.process(&full_ctx).await;
+
+    // Process the job and handle panics
+    let result = match AssertUnwindSafe(worker.process(&full_ctx))
+        .catch_unwind()
+        .await
+    {
+        Ok(result) => ExecutionResult::NotPanic(result),
+        Err(panic) => {
+            let panic_msg = if let Some(s) = panic.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = panic.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "Unknown panic occurred".to_string()
+            };
+            ExecutionResult::Panic(panic_msg)
+        }
+    };
+
+    dbg!(&result);
+
     let duration = start.elapsed();
-    let is_err = result.is_err();
+    let is_err = !matches!(result, ExecutionResult::NotPanic(Ok(_)));
     tracing::info!(
         job_id = envelope.id,
         queue = envelope.queue,
@@ -39,45 +72,69 @@ where
         "Job finished"
     );
 
-    #[cfg(feature = "sentry")]
-    if let Err(e) = &result {
-        sentry_core::capture_error(e);
-    }
+    let max_retries = worker.max_retries();
+    let retry_delay = worker.retry_delay(envelope.meta.retries);
 
-    if is_err {
-        let max_retries = worker.max_retries();
-        let retry_delay = worker.retry_delay(envelope.meta.retries);
+    match result {
+        ExecutionResult::NotPanic(result) => {
+            match &result {
+                Ok(()) => {
+                    if let Err(e) = config.storage.internal.finish_with_success(&envelope).await {
+                        tracing::error!("Failed to finish job: {}", e);
+                    }
+                }
+                Err(e) => {
+                    #[cfg(feature = "sentry")]
+                    sentry_core::capture_error(e);
 
-        if envelope.meta.retries < max_retries {
-            config
-                .storage
-                .internal
-                .finish_with_failure(&envelope)
-                .await
-                .expect("Failed to finish job");
-            config
-                .storage
-                .internal
-                .retry_in(envelope, retry_delay)
-                .await
-                .expect("Failed to retry job");
-        } else {
-            tracing::error!("Job {} failed after {} retries", envelope.id, max_retries);
-            config
-                .storage
-                .internal
-                .kill(&envelope)
-                .await
-                .expect("Failed to kill job");
+                    handle_err(config, &e.to_string(), envelope, retry_delay, max_retries).await;
+                }
+            }
+
+            Ok(result.map_err(ExecutionError::NotPanic))
         }
-    } else {
-        config
+        ExecutionResult::Panic(panic_msg) => {
+            #[cfg(feature = "sentry")]
+            sentry_core::capture_error(panic_msg);
+
+            handle_err(config, &panic_msg, envelope, retry_delay, max_retries).await;
+
+            Ok(Err(ExecutionError::Panic()))
+        }
+    }
+}
+
+async fn handle_err<DT, ET>(
+    config: Arc<Config<DT, ET>>,
+    err_msg: &str,
+    envelope: JobEnvelope,
+    retry_delay: u64,
+    max_retries: u32,
+) where
+    DT: Send + Sync + Clone + 'static,
+    ET: std::error::Error + Send + Sync + 'static,
+{
+    if envelope.meta.retries < max_retries {
+        if let Err(e) = config.storage.internal.finish_with_failure(&envelope).await {
+            tracing::error!("Failed to finish job: {}", e);
+        }
+        if let Err(e) = config
             .storage
             .internal
-            .finish_with_success(&envelope)
+            .retry_in(envelope, retry_delay)
             .await
-            .expect("Failed to finish job");
+        {
+            tracing::error!("Failed to retry job: {}", e);
+        }
+    } else {
+        tracing::error!(
+            "Job {} failed after {} retries: {}",
+            envelope.id,
+            max_retries,
+            err_msg
+        );
+        if let Err(e) = config.storage.internal.kill(&envelope).await {
+            tracing::error!("Failed to kill job: {}", e);
+        }
     }
-
-    Ok(result)
 }

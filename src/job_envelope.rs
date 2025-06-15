@@ -12,7 +12,6 @@ pub struct JobEnvelope {
     pub job: Job,
     pub queue: String,
     pub meta: JobMeta,
-    pub queue: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -74,7 +73,6 @@ impl JobEnvelope {
             id: self.id,
             queue: self.queue,
             job: self.job,
-            queue: self.queue,
             meta: JobMeta {
                 retries: self.meta.retries + 1,
                 unique: self.meta.unique,

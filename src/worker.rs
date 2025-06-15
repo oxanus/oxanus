@@ -1,9 +1,10 @@
 use crate::context::Context;
+use std::panic::UnwindSafe;
 
 pub type BoxedWorker<DT, ET> = Box<dyn Worker<Context = DT, Error = ET>>;
 
 #[async_trait::async_trait]
-pub trait Worker: Send + Sync {
+pub trait Worker: Send + Sync + UnwindSafe {
     type Context: Clone + Send + Sync;
     type Error: std::error::Error + Send + Sync;
 
