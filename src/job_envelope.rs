@@ -11,12 +11,12 @@ pub struct JobEnvelope {
     pub id: JobId,
     pub job: Job,
     pub meta: JobMeta,
+    pub queue: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Job {
     pub name: String,
-    pub queue: String,
     pub args: serde_json::Value,
 }
 
@@ -39,9 +39,9 @@ impl JobEnvelope {
         let id = unique_id.unwrap_or_else(|| Uuid::new_v4().to_string());
         Ok(Self {
             id,
+            queue,
             job: Job {
                 name: type_name::<T>().to_string(),
-                queue,
                 args: serde_json::to_value(&job)?,
             },
             meta: JobMeta {
@@ -55,9 +55,9 @@ impl JobEnvelope {
     pub fn new_cron(queue: String, id: String, name: String) -> Result<Self, OxanusError> {
         Ok(Self {
             id,
+            queue,
             job: Job {
                 name: name.to_string(),
-                queue,
                 args: serde_json::to_value(serde_json::json!({}))?,
             },
             meta: JobMeta {
@@ -72,6 +72,7 @@ impl JobEnvelope {
         Self {
             id: self.id,
             job: self.job,
+            queue: self.queue,
             meta: JobMeta {
                 retries: self.meta.retries + 1,
                 unique: self.meta.unique,

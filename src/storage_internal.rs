@@ -98,7 +98,7 @@ impl StorageInternal {
                 deadpool_redis::redis::ExpireOption::NONE,
                 &envelope.id,
             )
-            .lpush(self.namespace_queue(&envelope.job.queue), &envelope.id)
+            .lpush(self.namespace_queue(&envelope.queue), &envelope.id)
             .query_async(&mut *redis)
             .await?;
 
@@ -304,9 +304,7 @@ impl StorageInternal {
         let envelopes_count = envelopes.len();
 
         for envelope in envelopes.iter() {
-            map.entry(envelope.job.queue.as_str())
-                .or_default()
-                .push(envelope);
+            map.entry(&envelope.queue).or_default().push(envelope);
         }
 
         for (queue, envelopes) in map {
@@ -496,7 +494,7 @@ impl StorageInternal {
                         Some(envelope) => {
                             tracing::info!(
                                 job_id = job_id,
-                                queue = envelope.job.queue,
+                                queue = envelope.queue,
                                 job = envelope.job.name,
                                 "Resurrecting job"
                             );
