@@ -261,6 +261,7 @@ impl StorageInternal {
         let _: () = redis::pipe()
             .hdel(&self.keys.jobs, &envelope.id)
             .lpush(&self.keys.dead, &serde_json::to_string(envelope)?)
+            .ltrim(&self.keys.dead, 0, 1000)
             .query_async(&mut redis)
             .await?;
         Ok(())
@@ -304,7 +305,7 @@ impl StorageInternal {
         let envelopes_count = envelopes.len();
 
         for envelope in envelopes.iter() {
-            map.entry(envelope.job.queue.as_str())
+            map.entry(envelope.queue.as_str())
                 .or_default()
                 .push(envelope);
         }
@@ -496,7 +497,7 @@ impl StorageInternal {
                         Some(envelope) => {
                             tracing::info!(
                                 job_id = job_id,
-                                queue = envelope.job.queue,
+                                queue = envelope.queue,
                                 job = envelope.job.name,
                                 "Resurrecting job"
                             );

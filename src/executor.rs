@@ -17,7 +17,7 @@ where
 {
     tracing::info!(
         job_id = envelope.id,
-        queue = envelope.job.queue,
+        queue = envelope.queue,
         job = envelope.job.name,
         "Job started"
     );
@@ -31,7 +31,7 @@ where
     let is_err = result.is_err();
     tracing::info!(
         job_id = envelope.id,
-        queue = envelope.job.queue,
+        queue = envelope.queue,
         job = envelope.job.name,
         success = !is_err,
         duration = duration.as_millis(),
