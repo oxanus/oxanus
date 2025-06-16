@@ -32,11 +32,11 @@ jobs:
         with:
           tool: nextest
 
-      - name: Run tests
+      - name: Test
         run: cargo nextest run
 
-      - name: Run tests
+      - name: Lint
         run: cargo clippy --all-features
 
-      - name: Run benchmarks
+      - name: Benchmark
         run: cargo bench
