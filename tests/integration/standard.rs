@@ -41,6 +41,7 @@ pub async fn test_standard() -> TestResult {
 
     assert_eq!(value, Some(random_value));
     assert_eq!(storage.enqueued_count(QueueOne).await?, 0);
+    assert_eq!(storage.jobs_count().await?, 0);
 
     Ok(())
 }

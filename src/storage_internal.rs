@@ -350,6 +350,12 @@ impl StorageInternal {
         Ok(count as usize)
     }
 
+    pub async fn jobs_count(&self) -> Result<usize, OxanusError> {
+        let mut redis = self.connection().await?;
+        let count: i64 = (*redis).hlen(&self.keys.jobs).await?;
+        Ok(count as usize)
+    }
+
     pub async fn retry_loop(&self, cancel_token: CancellationToken) -> Result<(), OxanusError> {
         tracing::info!("Starting retry loop");
 

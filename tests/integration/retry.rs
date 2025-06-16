@@ -83,6 +83,7 @@ pub async fn test_retry() -> TestResult {
     assert_eq!(value, Some(random_value_second));
     assert_eq!(storage.dead_count().await?, 0);
     assert_eq!(storage.enqueued_count(QueueOne).await?, 0);
+    assert_eq!(storage.jobs_count().await?, 0);
 
     Ok(())
 }

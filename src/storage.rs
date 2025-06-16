@@ -164,6 +164,15 @@ impl Storage {
         self.internal.scheduled_count().await
     }
 
+    /// Returns the number of jobs that are currently enqueued or scheduled for future execution.
+    ///
+    /// # Returns
+    ///
+    /// The number of jobs, or an [`OxanusError`] if the operation fails.
+    pub async fn jobs_count(&self) -> Result<usize, OxanusError> {
+        self.internal.jobs_count().await
+    }
+
     /// Returns the namespace this storage instance is using.
     ///
     /// # Returns

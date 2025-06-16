@@ -57,6 +57,7 @@ pub async fn test_unique() -> TestResult {
 
     assert_eq!(storage.dead_count().await?, 0);
     assert_eq!(storage.enqueued_count(QueueOne).await?, 0);
+    assert_eq!(storage.jobs_count().await?, 0);
 
     Ok(())
 }

@@ -38,6 +38,7 @@ pub async fn test_dynamic() -> TestResult {
     assert_eq!(storage.enqueued_count(QueueDynamic(1)).await?, 0);
     assert_eq!(storage.enqueued_count(QueueDynamic(2)).await?, 0);
     assert_eq!(storage.enqueued_count(QueueDynamic(3)).await?, 0);
+    assert_eq!(storage.jobs_count().await?, 0);
 
     Ok(())
 }
