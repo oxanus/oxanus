@@ -24,17 +24,19 @@ jobs:
       RUST_LOG: trace
 
     steps:
+      - uses: actions/checkout@v4
 
-    - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
 
-    - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
 
-    - uses: taiki-e/install-action@v2
-      with:
-        tool: nextest
+      - name: Run tests
+        run: cargo nextest run
 
-    - name: Run tests
-      run: cargo nextest run
+      - name: Run tests
+        run: cargo clippy --all-features
 
-    - name: Run benchmarks
-      run: cargo bench
+      - name: Run benchmarks
+        run: cargo bench

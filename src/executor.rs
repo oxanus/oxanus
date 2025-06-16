@@ -93,7 +93,7 @@ where
         }
         ExecutionResult::Panic(panic_msg) => {
             #[cfg(feature = "sentry")]
-            sentry_core::capture_error(panic_msg);
+            sentry_core::capture_message(&panic_msg, sentry_core::Level::Error);
 
             handle_err(config, &panic_msg, envelope, retry_delay, max_retries).await;
 
