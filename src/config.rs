@@ -84,6 +84,7 @@ impl<DT, ET> Config<DT, ET> {
     }
 }
 
+#[cfg(target_os = "linux")]
 async fn default_shutdown_signal() -> Result<(), std::io::Error> {
     let ctrl_c = tokio::signal::ctrl_c();
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
@@ -92,6 +93,11 @@ async fn default_shutdown_signal() -> Result<(), std::io::Error> {
         _ = ctrl_c => Ok(()),
         _ = terminate.recv() => Ok(()),
     }
+}
+
+#[cfg(target_os = "windows")]
+async fn default_shutdown_signal() -> Result<(), std::io::Error> {
+    tokio::signal::ctrl_c().await
 }
 
 fn no_signal() -> Pin<Box<dyn Future<Output = Result<(), std::io::Error>> + Send + Sync + 'static>>
