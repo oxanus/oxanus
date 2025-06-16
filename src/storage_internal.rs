@@ -12,7 +12,7 @@ use crate::{
     worker_registry::CronJob,
 };
 
-const JOB_EXPIRE_TIME: i64 = 7 * 24 * 3600; // 7 days
+// const JOB_EXPIRE_TIME: i64 = 7 * 24 * 3600; // 7 days
 const RESURRECT_THRESHOLD_SECS: i64 = 5;
 
 #[derive(Clone)]
@@ -96,12 +96,12 @@ impl StorageInternal {
                 &envelope.id,
                 serde_json::to_string(&envelope)?,
             )
-            .hexpire(
-                &self.keys.jobs,
-                JOB_EXPIRE_TIME,
-                deadpool_redis::redis::ExpireOption::NONE,
-                &envelope.id,
-            )
+            // .hexpire(
+            //     &self.keys.jobs,
+            //     JOB_EXPIRE_TIME,
+            //     deadpool_redis::redis::ExpireOption::NONE,
+            //     &envelope.id,
+            // )
             .lpush(self.namespace_queue(&envelope.queue), &envelope.id)
             .query_async(&mut *redis)
             .await?;
@@ -153,12 +153,12 @@ impl StorageInternal {
                 &envelope.id,
                 serde_json::to_string(&envelope)?,
             )
-            .hexpire(
-                &self.keys.jobs,
-                JOB_EXPIRE_TIME,
-                redis::ExpireOption::NONE,
-                &envelope.id,
-            )
+            // .hexpire(
+            //     &self.keys.jobs,
+            //     JOB_EXPIRE_TIME,
+            //     redis::ExpireOption::NONE,
+            //     &envelope.id,
+            // )
             .zadd(&self.keys.schedule, &envelope.id, time.timestamp_micros())
             .query_async(&mut redis)
             .await?;
@@ -181,12 +181,12 @@ impl StorageInternal {
                 &updated_envelope.id,
                 serde_json::to_string(&updated_envelope)?,
             )
-            .hexpire(
-                &self.keys.jobs,
-                JOB_EXPIRE_TIME,
-                redis::ExpireOption::NONE,
-                &updated_envelope.id,
-            )
+            // .hexpire(
+            //     &self.keys.jobs,
+            //     JOB_EXPIRE_TIME,
+            //     redis::ExpireOption::NONE,
+            //     &updated_envelope.id,
+            // )
             .zadd(
                 &self.keys.retry,
                 updated_envelope.id,
