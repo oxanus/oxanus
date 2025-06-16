@@ -57,7 +57,7 @@ impl JobEnvelope {
             id,
             queue,
             job: Job {
-                name: name.to_string(),
+                name,
                 args: serde_json::to_value(serde_json::json!({}))?,
             },
             meta: JobMeta {

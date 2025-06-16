@@ -5,6 +5,12 @@ pub struct StorageBuilder {
     pool: Option<deadpool_redis::Pool>,
 }
 
+impl Default for StorageBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StorageBuilder {
     pub fn new() -> Self {
         Self {

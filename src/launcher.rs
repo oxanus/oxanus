@@ -63,16 +63,16 @@ where
     let mut joinset = tokio::task::JoinSet::new();
     let stats = Arc::new(Mutex::new(Stats::default()));
 
-    tokio::spawn(retry_loop(config.clone()));
-    tokio::spawn(schedule_loop(config.clone()));
-    tokio::spawn(ping_loop(config.clone()));
-    tokio::spawn(resurrect_loop(config.clone()));
-    tokio::spawn(cron_loop(config.clone()));
+    tokio::spawn(retry_loop(Arc::clone(&config)));
+    tokio::spawn(schedule_loop(Arc::clone(&config)));
+    tokio::spawn(ping_loop(Arc::clone(&config)));
+    tokio::spawn(resurrect_loop(Arc::clone(&config)));
+    tokio::spawn(cron_loop(Arc::clone(&config)));
 
     for queue_config in &config.queues {
         joinset.spawn(coordinator::run(
-            config.clone(),
-            stats.clone(),
+            Arc::clone(&config),
+            Arc::clone(&stats),
             ctx.clone(),
             queue_config.clone(),
         ));

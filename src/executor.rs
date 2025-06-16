@@ -48,7 +48,7 @@ where
         Ok(result) => ExecutionResult::NotPanic(result),
         Err(panic) => {
             let panic_msg = if let Some(s) = panic.downcast_ref::<&str>() {
-                s.to_string()
+                (*s).to_string()
             } else if let Some(s) = panic.downcast_ref::<String>() {
                 s.clone()
             } else {
@@ -57,8 +57,6 @@ where
             ExecutionResult::Panic(panic_msg)
         }
     };
-
-    dbg!(&result);
 
     let duration = start.elapsed();
     let is_err = !matches!(result, ExecutionResult::NotPanic(Ok(_)));

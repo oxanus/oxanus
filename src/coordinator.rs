@@ -33,14 +33,14 @@ where
 
     tokio::spawn(result_collector::run(
         result_rx,
-        config.clone(),
-        stats.clone(),
+        Arc::clone(&config),
+        Arc::clone(&stats),
     ));
     tokio::spawn(run_queue_watcher(
-        config.clone(),
+        Arc::clone(&config),
         queue_config.clone(),
         job_tx.clone(),
-        semaphores.clone(),
+        Arc::clone(&semaphores),
     ));
 
     loop {
@@ -48,7 +48,7 @@ where
             job = job_rx.recv() => {
                 if let Some(job) = job {
                     tokio::spawn(process_job(
-                        config.clone(),
+                        Arc::clone(&config),
                         ctx.clone(),
                         result_tx.clone(),
                         job,
@@ -61,7 +61,7 @@ where
         }
     }
 
-    wait_for_workers_to_finish(semaphores.clone()).await;
+    wait_for_workers_to_finish(Arc::clone(&semaphores)).await;
 
     Ok(())
 }
@@ -161,11 +161,11 @@ async fn run_queue_watcher<DT, ET>(
             );
 
             tokio::spawn(dispatcher::run(
-                config.clone(),
+                Arc::clone(&config),
                 queue_config.clone(),
                 queue.clone(),
                 job_tx.clone(),
-                semaphores.clone(),
+                Arc::clone(&semaphores),
             ));
 
             tracked_queues.insert(queue);

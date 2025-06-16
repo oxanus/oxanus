@@ -29,7 +29,7 @@ pub async fn run<DT, ET>(
         tokio::select! {
             result = rx.recv() => {
                 match result {
-                    Some(result) => update_stats(config.clone(), stats.clone(), result).await,
+                    Some(result) => update_stats(Arc::clone(&config), Arc::clone(&stats), result).await,
                     None => break,
                 }
             }
