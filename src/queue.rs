@@ -1,5 +1,8 @@
 use serde::Serialize;
-use std::time::Duration;
+use std::{
+    hash::{Hash, Hasher},
+    time::Duration,
+};
 
 pub trait Queue: Send + Sync + Serialize {
     fn key(&self) -> String {
@@ -12,6 +15,9 @@ pub trait Queue: Send + Sync + Serialize {
         }
     }
     fn to_config() -> QueueConfig;
+    fn config(&self) -> QueueConfig {
+        Self::to_config()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -19,6 +25,20 @@ pub struct QueueConfig {
     pub kind: QueueKind,
     pub concurrency: usize,
     pub throttle: Option<QueueThrottle>,
+}
+
+impl PartialEq for QueueConfig {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind
+    }
+}
+
+impl Eq for QueueConfig {}
+
+impl Hash for QueueConfig {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.kind.hash(state);
+    }
 }
 
 impl QueueConfig {
@@ -61,6 +81,29 @@ pub enum QueueKind {
         prefix: String,
         sleep_period: Duration,
     },
+}
+
+impl PartialEq for QueueKind {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (QueueKind::Static { key: k1 }, QueueKind::Static { key: k2 }) => k1 == k2,
+            (QueueKind::Dynamic { prefix: p1, .. }, QueueKind::Dynamic { prefix: p2, .. }) => {
+                p1 == p2
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Eq for QueueKind {}
+
+impl Hash for QueueKind {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            QueueKind::Static { key } => key.hash(state),
+            QueueKind::Dynamic { prefix, .. } => prefix.hash(state),
+        }
+    }
 }
 
 impl QueueKind {

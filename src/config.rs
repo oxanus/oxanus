@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::pin::Pin;
 use tokio_util::sync::CancellationToken;
 
@@ -8,7 +9,7 @@ use crate::worker_registry::WorkerRegistry;
 
 pub struct Config<DT, ET> {
     pub(crate) registry: WorkerRegistry<DT, ET>,
-    pub(crate) queues: Vec<QueueConfig>,
+    pub(crate) queues: HashSet<QueueConfig>,
     pub(crate) exit_when_processed: Option<u64>,
     pub(crate) shutdown_signal:
         Pin<Box<dyn Future<Output = Result<(), std::io::Error>> + Send + Sync>>,
@@ -20,7 +21,7 @@ impl<DT, ET> Config<DT, ET> {
     pub fn new(storage: &Storage) -> Self {
         Self {
             registry: WorkerRegistry::new(),
-            queues: Vec::new(),
+            queues: HashSet::new(),
             exit_when_processed: None,
             shutdown_signal: Box::pin(default_shutdown_signal()),
             cancel_token: CancellationToken::new(),
@@ -32,7 +33,7 @@ impl<DT, ET> Config<DT, ET> {
     where
         Q: Queue,
     {
-        self.queues.push(Q::to_config());
+        self.queues.insert(Q::to_config());
         self
     }
 
@@ -42,7 +43,7 @@ impl<DT, ET> Config<DT, ET> {
     {
         let mut config = Q::to_config();
         config.concurrency = concurrency;
-        self.queues.push(config);
+        self.queues.insert(config);
         self
     }
 
@@ -58,6 +59,7 @@ impl<DT, ET> Config<DT, ET> {
     where
         T: Worker<Context = DT, Error = ET> + serde::de::DeserializeOwned + 'static,
     {
+        self.queues.insert(queue.config());
         self.registry.register_cron::<T>(schedule, queue.key());
         self
     }
