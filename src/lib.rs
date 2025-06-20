@@ -80,6 +80,7 @@ mod config;
 mod context;
 mod coordinator;
 mod dispatcher;
+mod drainer;
 mod error;
 mod executor;
 mod job_envelope;
@@ -100,6 +101,7 @@ mod test_helper;
 
 pub use crate::config::Config;
 pub use crate::context::Context;
+pub use crate::drainer::drain;
 pub use crate::error::OxanusError;
 pub use crate::job_envelope::JobId;
 pub use crate::launcher::run;

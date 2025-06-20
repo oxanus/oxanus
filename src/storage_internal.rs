@@ -201,7 +201,7 @@ impl StorageInternal {
         &self,
         queue: &str,
         timeout: f64,
-    ) -> Result<Option<String>, OxanusError> {
+    ) -> Result<Option<JobId>, OxanusError> {
         let mut redis = self.connection().await?;
         let job_id: Option<String> = redis
             .blmove(
@@ -215,9 +215,9 @@ impl StorageInternal {
         Ok(job_id)
     }
 
-    pub async fn dequeue(&self, queue: &str) -> Result<Option<String>, OxanusError> {
+    pub async fn dequeue(&self, queue: &str) -> Result<Option<JobId>, OxanusError> {
         let mut redis = self.connection().await?;
-        let job_id: Option<String> = redis
+        let job_id: Option<JobId> = redis
             .lmove(
                 self.namespace_queue(queue),
                 self.current_processing_queue(),
@@ -228,7 +228,7 @@ impl StorageInternal {
         Ok(job_id)
     }
 
-    pub async fn get(&self, id: &str) -> Result<Option<JobEnvelope>, OxanusError> {
+    pub async fn get(&self, id: &JobId) -> Result<Option<JobEnvelope>, OxanusError> {
         let mut redis = self.connection().await?;
         let envelope: Option<String> = redis.hget(&self.keys.jobs, id).await?;
         match envelope {
@@ -237,7 +237,7 @@ impl StorageInternal {
         }
     }
 
-    pub async fn delete(&self, id: &str) -> Result<(), OxanusError> {
+    pub async fn delete(&self, id: &JobId) -> Result<(), OxanusError> {
         let mut redis = self.connection().await?;
         let _: () = redis::pipe()
             .hdel(&self.keys.jobs, id)
@@ -247,7 +247,7 @@ impl StorageInternal {
         Ok(())
     }
 
-    pub async fn get_many(&self, ids: &[String]) -> Result<Vec<JobEnvelope>, OxanusError> {
+    pub async fn get_many(&self, ids: &[JobId]) -> Result<Vec<JobEnvelope>, OxanusError> {
         let mut redis = self.connection().await?;
         let mut cmd = redis::cmd("HMGET");
         cmd.arg(&self.keys.jobs);
@@ -263,6 +263,7 @@ impl StorageInternal {
     pub async fn kill(&self, envelope: &JobEnvelope) -> Result<(), OxanusError> {
         let mut redis = self.connection().await?;
         let _: () = redis::pipe()
+            .lrem(self.current_processing_queue(), 1, &envelope.id)
             .hdel(&self.keys.jobs, &envelope.id)
             .lpush(&self.keys.dead, &serde_json::to_string(envelope)?)
             .ltrim(&self.keys.dead, 0, 1000)

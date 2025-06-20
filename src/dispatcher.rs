@@ -3,13 +3,13 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 
-use crate::Config;
 use crate::error::OxanusError;
 use crate::queue::{QueueConfig, QueueThrottle};
 use crate::semaphores_map::SemaphoresMap;
 use crate::storage_internal::StorageInternal;
 use crate::throttler::Throttler;
 use crate::worker_event::WorkerJob;
+use crate::{Config, JobId};
 
 pub async fn run<DT, ET>(
     config: Arc<Config<DT, ET>>,
@@ -70,7 +70,7 @@ async fn pop_queue_message_w_throttle(
     storage: &StorageInternal,
     queue_key: &str,
     throttle: &QueueThrottle,
-) -> Result<String, OxanusError> {
+) -> Result<JobId, OxanusError> {
     let pool = storage.pool().await?;
     loop {
         let throttler = Throttler::new(pool.clone(), queue_key, throttle.limit, throttle.window_ms);
