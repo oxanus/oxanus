@@ -46,7 +46,11 @@ impl StorageBuilder {
     }
 
     pub fn from_env(self) -> Result<Self, OxanusError> {
-        let url = std::env::var("REDIS_URL").expect("REDIS_URL is not set");
+        self.from_env_var("REDIS_URL")
+    }
+
+    pub fn from_env_var(self, var_name: &str) -> Result<Self, OxanusError> {
+        let url = std::env::var(var_name).expect(&format!("{} is not set", var_name));
         self.from_redis_url(url)
     }
 
