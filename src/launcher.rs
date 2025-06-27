@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
@@ -59,18 +60,19 @@ where
 
     let mut config = config;
     let shutdown_signal = config.consume_shutdown_signal();
-    let config = Arc::new(config);
-    let mut joinset = tokio::task::JoinSet::new();
+    let config: Arc<Config<DT, ET>> = Arc::new(config);
+    let mut joinset = JoinSet::new();
+    let mut coordinator_joinset = JoinSet::new();
     let stats = Arc::new(Mutex::new(Stats::default()));
 
-    tokio::spawn(retry_loop(Arc::clone(&config)));
-    tokio::spawn(schedule_loop(Arc::clone(&config)));
-    tokio::spawn(ping_loop(Arc::clone(&config)));
-    tokio::spawn(resurrect_loop(Arc::clone(&config)));
-    tokio::spawn(cron_loop(Arc::clone(&config)));
+    joinset.spawn(retry_loop(Arc::clone(&config)));
+    joinset.spawn(schedule_loop(Arc::clone(&config)));
+    joinset.spawn(ping_loop(Arc::clone(&config)));
+    joinset.spawn(resurrect_loop(Arc::clone(&config)));
+    joinset.spawn(cron_loop(Arc::clone(&config)));
 
     for queue_config in &config.queues {
-        joinset.spawn(coordinator::run(
+        coordinator_joinset.spawn(coordinator::run(
             Arc::clone(&config),
             Arc::clone(&stats),
             ctx.clone(),
@@ -78,7 +80,27 @@ where
         ));
     }
 
+    let mut result = Ok(());
+
     tokio::select! {
+        Some(task_result) = joinset.join_next() => {
+            result = task_result?;
+
+            if result.is_ok() {
+                tracing::info!("Background task unexpectedly finished");
+            }
+
+            config.cancel_token.cancel();
+        }
+        Some(task_result) = coordinator_joinset.join_next() => {
+            result = task_result?;
+
+            if result.is_ok() {
+                tracing::info!("Background task unexpectedly finished");
+            }
+
+            config.cancel_token.cancel();
+        }
         _ = config.cancel_token.cancelled() => {}
         _ = shutdown_signal => {
             config.cancel_token.cancel();
@@ -87,15 +109,22 @@ where
 
     tracing::info!("Shutting down");
 
-    joinset.join_all().await;
+    coordinator_joinset.join_all().await;
 
     let stats = Arc::try_unwrap(stats)
         .expect("Failed to unwrap Arc - there are still references to stats")
         .into_inner();
 
-    tracing::info!("Gracefully shut down");
-
-    Ok(stats)
+    match result {
+        Ok(()) => {
+            tracing::info!("Gracefully shut down");
+            Ok(stats)
+        }
+        Err(e) => {
+            tracing::error!("Gracefully shut down with errors");
+            Err(e)
+        }
+    }
 }
 
 async fn retry_loop<DT, ET>(config: Arc<Config<DT, ET>>) -> Result<(), OxanusError>
@@ -167,8 +196,10 @@ where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
+    let mut set = JoinSet::new();
+
     for (name, cron_job) in &config.registry.schedules {
-        tokio::spawn(cron_job_loop(
+        set.spawn(cron_job_loop(
             config.storage.internal.clone(),
             config.cancel_token.clone(),
             name.clone(),
@@ -176,6 +207,11 @@ where
         ));
     }
 
+    if set.is_empty() {
+        config.cancel_token.cancelled().await;
+    } else {
+        set.join_all().await;
+    }
     Ok(())
 }
 
