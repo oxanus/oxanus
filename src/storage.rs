@@ -137,6 +137,19 @@ impl Storage {
         self.internal.enqueued_count(&queue.key()).await
     }
 
+    /// Returns the latency of the queue (The age of the oldest job in the queue).
+    ///
+    /// # Arguments
+    ///
+    /// * `queue` - The queue to get the latency for
+    ///
+    /// # Returns
+    ///
+    /// The latency of the queue in milliseconds, or an [`OxanusError`] if the operation fails.
+    pub async fn latency_ms(&self, queue: impl Queue) -> Result<f64, OxanusError> {
+        self.internal.latency_ms(&queue.key()).await
+    }
+
     /// Returns the number of jobs that have failed and moved to the dead queue.
     ///
     /// # Returns

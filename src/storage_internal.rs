@@ -333,6 +333,29 @@ impl StorageInternal {
         Ok(count as usize)
     }
 
+    pub async fn latency_ms(&self, queue: &str) -> Result<f64, OxanusError> {
+        self.latency_micros(queue)
+            .await
+            .map(|latency| latency / 1_000.0)
+    }
+
+    pub async fn latency_micros(&self, queue: &str) -> Result<f64, OxanusError> {
+        let mut redis = self.connection().await?;
+        let result: Vec<String> = (*redis).lrange(self.namespace_queue(queue), 0, 0).await?;
+        match result.first() {
+            Some(job_id) => {
+                let envelope = self.get(job_id).await?;
+                Ok(envelope
+                    .map(|envelope| {
+                        let now = chrono::Utc::now().timestamp_micros() as u64;
+                        (now - envelope.meta.created_at) as f64
+                    })
+                    .unwrap_or(0.0))
+            }
+            None => Ok(0.0),
+        }
+    }
+
     pub async fn dead_count(&self) -> Result<usize, OxanusError> {
         let mut redis = self.connection().await?;
         let count: i64 = (*redis).llen(&self.keys.dead).await?;
@@ -550,5 +573,45 @@ impl StorageInternal {
         } else {
             format!("{}:{}", self.keys.namespace, queue)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde::Serialize;
+    use testresult::TestResult;
+
+    use super::*;
+    use crate::test_helper::{random_string, redis_pool};
+
+    #[derive(Serialize)]
+    struct TestWorker {}
+
+    #[async_trait::async_trait]
+    impl crate::Worker for TestWorker {
+        type Context = ();
+        type Error = std::io::Error;
+
+        async fn process(&self, _: &crate::Context<Self::Context>) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_latency() -> TestResult {
+        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()));
+        let queue = random_string();
+
+        let mut envelope = JobEnvelope::new(queue.clone(), TestWorker {})?;
+        let now = chrono::Utc::now();
+        let actual_latency = 777;
+        envelope.meta.created_at = now.timestamp_micros() as u64 - actual_latency * 1_000;
+        storage.enqueue(envelope).await?;
+
+        let latency = storage.latency_ms(&queue).await?;
+
+        assert!((latency - actual_latency as f64).abs() < 5.0);
+
+        Ok(())
     }
 }
