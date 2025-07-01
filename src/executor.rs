@@ -2,7 +2,7 @@ use futures::FutureExt;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
-use crate::context::ContextValue;
+use crate::context::{ContextValue, JobState};
 use crate::job_envelope::JobEnvelope;
 use crate::worker::BoxedWorker;
 use crate::{Config, Context, OxanusError};
@@ -37,7 +37,12 @@ where
     let start = std::time::Instant::now();
     let full_ctx = Context {
         ctx: ctx.0,
-        meta: envelope.meta,
+        meta: envelope.meta.clone(),
+        state: JobState::new(
+            config.storage.clone(),
+            envelope.id.clone(),
+            envelope.meta.state.clone(),
+        ),
     };
 
     // Process the job and handle panics
@@ -63,7 +68,7 @@ where
     tracing::info!(
         job_id = envelope.id,
         queue = envelope.queue,
-        job = envelope.job.name,
+        job = &envelope.job.name,
         success = !is_err,
         duration = duration.as_millis(),
         retries = envelope.meta.retries,
@@ -84,6 +89,8 @@ where
                 Err(e) => {
                     #[cfg(feature = "sentry")]
                     sentry_core::capture_error(e);
+
+                    tracing::error!("Job failed: {}", e);
 
                     handle_err(config, &e.to_string(), envelope, retry_delay, max_retries).await;
                 }
@@ -119,7 +126,7 @@ async fn handle_err<DT, ET>(
         if let Err(e) = config
             .storage
             .internal
-            .retry_in(envelope, retry_delay)
+            .retry_in(envelope.id, retry_delay)
             .await
         {
             tracing::error!("Failed to retry job: {}", e);

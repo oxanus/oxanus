@@ -20,11 +20,13 @@ pub struct Job {
     pub args: serde_json::Value,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct JobMeta {
+    pub id: JobId,
     pub retries: u32,
     pub unique: bool,
     pub created_at: u64,
+    pub state: Option<serde_json::Value>,
 }
 
 impl JobEnvelope {
@@ -38,45 +40,51 @@ impl JobEnvelope {
         let unique = unique_id.is_some();
         let id = unique_id.unwrap_or_else(|| Uuid::new_v4().to_string());
         Ok(Self {
-            id,
+            id: id.clone(),
             queue,
             job: Job {
                 name: type_name::<T>().to_string(),
                 args: serde_json::to_value(&job)?,
             },
             meta: JobMeta {
+                id,
                 retries: 0,
                 unique,
                 created_at: u64::try_from(chrono::Utc::now().timestamp_micros())?,
+                state: None,
             },
         })
     }
 
     pub fn new_cron(queue: String, id: String, name: String) -> Result<Self, OxanusError> {
         Ok(Self {
-            id,
+            id: id.clone(),
             queue,
             job: Job {
                 name,
                 args: serde_json::to_value(serde_json::json!({}))?,
             },
             meta: JobMeta {
+                id,
                 retries: 0,
                 unique: true,
                 created_at: u64::try_from(chrono::Utc::now().timestamp_micros())?,
+                state: None,
             },
         })
     }
 
     pub fn with_retries_incremented(self) -> Self {
         Self {
-            id: self.id,
+            id: self.id.clone(),
             queue: self.queue,
             job: self.job,
             meta: JobMeta {
+                id: self.id,
                 retries: self.meta.retries + 1,
                 unique: self.meta.unique,
                 created_at: self.meta.created_at,
+                state: self.meta.state,
             },
         }
     }

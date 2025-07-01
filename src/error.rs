@@ -2,6 +2,8 @@
 pub enum OxanusError {
     #[error("Generic error: {0}")]
     GenericError(String),
+    #[error("Job not found")]
+    JobNotFound,
     #[error("Json error: {0}")]
     JsonError(#[from] serde_json::Error),
     #[error("Semaphore error: {0}")]
@@ -24,4 +26,6 @@ pub enum OxanusError {
     ConfigRedisNotConfigured,
     #[error("Job panicked: {0}")]
     JobPanicked(String),
+    #[error("Job state json error: {0}")]
+    JobStateJsonError(serde_json::Error),
 }

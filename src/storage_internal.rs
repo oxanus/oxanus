@@ -166,13 +166,19 @@ impl StorageInternal {
         Ok(envelope.id)
     }
 
-    pub async fn retry_in(&self, envelope: JobEnvelope, delay_s: u64) -> Result<(), OxanusError> {
-        let updated_envelope = envelope.with_retries_incremented();
+    pub async fn retry_in(&self, job_id: JobId, delay_s: u64) -> Result<(), OxanusError> {
+        let updated_envelope = self
+            .get(&job_id)
+            .await?
+            .ok_or(OxanusError::JobNotFound)?
+            .with_retries_incremented();
 
         if delay_s == 0 {
             self.enqueue(updated_envelope).await?;
             return Ok(());
         }
+
+        let now = chrono::Utc::now().timestamp_micros() as u64;
 
         let mut redis = self.connection().await?;
         let _: () = redis::pipe()
@@ -190,7 +196,7 @@ impl StorageInternal {
             .zadd(
                 &self.keys.retry,
                 updated_envelope.id,
-                updated_envelope.meta.created_at + delay_s * 1_000_000,
+                now + delay_s * 1_000_000,
             )
             .query_async(&mut redis)
             .await?;
@@ -235,6 +241,33 @@ impl StorageInternal {
             Some(envelope) => Ok(Some(serde_json::from_str(&envelope)?)),
             None => Ok(None),
         }
+    }
+
+    pub async fn update(&self, envelope: &JobEnvelope) -> Result<(), OxanusError> {
+        let mut redis = self.connection().await?;
+        let _: () = redis::pipe()
+            .hset(
+                &self.keys.jobs,
+                &envelope.id,
+                serde_json::to_string(envelope)?,
+            )
+            .query_async(&mut redis)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn update_state(
+        &self,
+        id: &JobId,
+        state: serde_json::Value,
+    ) -> Result<Option<JobEnvelope>, OxanusError> {
+        let mut envelope = match self.get(id).await? {
+            Some(envelope) => envelope,
+            None => return Ok(None),
+        };
+        envelope.meta.state = Some(state);
+        self.update(&envelope).await?;
+        Ok(Some(envelope))
     }
 
     pub async fn delete(&self, id: &JobId) -> Result<(), OxanusError> {
@@ -297,7 +330,6 @@ impl StorageInternal {
         schedule_queue: &str,
     ) -> Result<usize, OxanusError> {
         let now = chrono::Utc::now().timestamp_micros();
-
         let job_ids: Vec<String> = (*redis).zrangebyscore(schedule_queue, 0, now).await?;
 
         if job_ids.is_empty() {
@@ -305,7 +337,6 @@ impl StorageInternal {
         }
 
         let envelopes = self.get_many(&job_ids).await?;
-
         let mut map: HashMap<&str, Vec<&JobEnvelope>> = HashMap::new();
         let envelopes_count = envelopes.len();
 
@@ -346,11 +377,10 @@ impl StorageInternal {
             Some(job_id) => {
                 let envelope = self.get(job_id).await?;
                 Ok(envelope
-                    .map(|envelope| {
+                    .map_or(0.0, |envelope| {
                         let now = chrono::Utc::now().timestamp_micros() as u64;
                         (now - envelope.meta.created_at) as f64
-                    })
-                    .unwrap_or(0.0))
+                    }))
             }
             None => Ok(0.0),
         }

@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::context::ContextValue;
+use crate::context::{ContextValue, JobState};
 use crate::error::OxanusError;
 use crate::job_envelope::JobEnvelope;
 use crate::{Context, JobId, Queue};
@@ -77,7 +77,8 @@ where
 
     let full_ctx = Context {
         ctx: ctx.0,
-        meta: envelope.meta,
+        meta: envelope.meta.clone(),
+        state: JobState::new(config.storage.clone(), job_id, envelope.meta.state.clone()),
     };
 
     let job_result = job.process(&full_ctx).await;
