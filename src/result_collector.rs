@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 
-use crate::config::Config;
+use crate::{OxanusError, config::Config};
 
 #[derive(Default, Debug)]
 pub struct Stats {
@@ -11,17 +11,22 @@ pub struct Stats {
     pub failed: u64,
 }
 
-pub(crate) enum JobResultType {
+pub struct JobResult {
+    pub queue_key: String,
+    pub kind: JobResultKind,
+}
+pub(crate) enum JobResultKind {
     Success,
     Panicked,
     Failed,
 }
 
 pub async fn run<DT, ET>(
-    mut rx: mpsc::Receiver<JobResultType>,
+    mut rx: mpsc::Receiver<JobResult>,
     config: Arc<Config<DT, ET>>,
     stats: Arc<Mutex<Stats>>,
-) where
+) -> Result<(), OxanusError>
+where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
@@ -29,12 +34,12 @@ pub async fn run<DT, ET>(
         tokio::select! {
             result = rx.recv() => {
                 match result {
-                    Some(result) => update_stats(Arc::clone(&config), Arc::clone(&stats), result).await,
-                    None => break,
+                    Some(result) => update_stats(Arc::clone(&config), Arc::clone(&stats), result).await?,
+                    None => return Ok(()),
                 }
             }
             _ = config.cancel_token.cancelled() => {
-                break;
+                return Ok(());
             }
         }
     }
@@ -43,29 +48,38 @@ pub async fn run<DT, ET>(
 async fn update_stats<DT, ET>(
     config: Arc<Config<DT, ET>>,
     stats: Arc<Mutex<Stats>>,
-    result: JobResultType,
-) where
+    result: JobResult,
+) -> Result<(), OxanusError>
+where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
     let processed = {
         let mut stats = stats.lock().await;
         stats.processed += 1;
-        match result {
-            JobResultType::Success => stats.succeeded += 1,
-            JobResultType::Panicked => {
+        match result.kind {
+            JobResultKind::Success => stats.succeeded += 1,
+            JobResultKind::Panicked => {
                 stats.panicked += 1;
                 stats.failed += 1;
             }
-            JobResultType::Failed => stats.failed += 1,
+            JobResultKind::Failed => stats.failed += 1,
         }
 
         stats.processed
     };
+
+    config
+        .storage
+        .internal
+        .update_stats(&result.queue_key, result.kind)
+        .await?;
 
     if let Some(exit_when_processed) = config.exit_when_processed {
         if processed >= exit_when_processed {
             config.cancel_token.cancel();
         }
     }
+
+    Ok(())
 }

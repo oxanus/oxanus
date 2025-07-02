@@ -8,7 +8,7 @@ use crate::error::OxanusError;
 use crate::executor::ExecutionError;
 use crate::job_envelope::JobEnvelope;
 use crate::queue::{QueueConfig, QueueKind};
-use crate::result_collector::JobResultType;
+use crate::result_collector::{JobResult, JobResultKind};
 use crate::semaphores_map::SemaphoresMap;
 use crate::worker_event::WorkerJob;
 use crate::{
@@ -27,7 +27,7 @@ where
     ET: std::error::Error + Send + Sync + 'static,
 {
     let concurrency = queue_config.concurrency;
-    let (result_tx, result_rx) = mpsc::channel::<JobResultType>(concurrency);
+    let (result_tx, result_rx) = mpsc::channel::<JobResult>(concurrency);
     let (job_tx, mut job_rx) = mpsc::channel::<WorkerJob>(concurrency);
     let semaphores = Arc::new(SemaphoresMap::new(concurrency));
 
@@ -69,7 +69,7 @@ where
 async fn process_job<DT, ET>(
     config: Arc<Config<DT, ET>>,
     ctx: ContextValue<DT>,
-    result_tx: mpsc::Sender<JobResultType>,
+    result_tx: mpsc::Sender<JobResult>,
     job_event: WorkerJob,
 ) where
     DT: Send + Sync + Clone + 'static,
@@ -114,20 +114,31 @@ async fn process_job<DT, ET>(
     };
 
     let result_tx = result_tx.clone();
+    let queue_key = envelope.queue.clone();
     let result = executor::run(config, job, envelope, ctx.clone())
         .await
         .expect("Failed to run job");
     drop(job_event.permit);
-    result_tx
-        .send(match result {
-            Ok(()) => JobResultType::Success,
-            Err(e) => match e {
-                ExecutionError::NotPanic(_) => JobResultType::Failed,
-                ExecutionError::Panic() => JobResultType::Panicked,
-            },
-        })
-        .await
-        .ok();
+
+    process_result(result_tx, result, queue_key).await;
+}
+
+async fn process_result<ET>(
+    result_tx: mpsc::Sender<JobResult>,
+    result: Result<(), ExecutionError<ET>>,
+    queue_key: String,
+) where
+    ET: std::error::Error + Send + Sync + 'static,
+{
+    let kind = match result {
+        Ok(()) => JobResultKind::Success,
+        Err(e) => match e {
+            ExecutionError::NotPanic(_) => JobResultKind::Failed,
+            ExecutionError::Panic() => JobResultKind::Panicked,
+        },
+    };
+
+    result_tx.send(JobResult { queue_key, kind }).await.ok();
 }
 
 async fn run_queue_watcher<DT, ET>(

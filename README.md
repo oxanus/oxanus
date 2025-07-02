@@ -25,6 +25,7 @@ Oxanus goes for simplity and depth over breadth. It only aims support single bac
 - **Resilient Jobs**: Jobs that can survive worker crashes and restarts
 - **Graceful Shutdown**: Clean shutdown of workers with in-progress job handling
 - **Periodic Jobs**: Run jobs on a schedule using cron-like expressions
+- **Resumable Jobs**: Jobs that can be resumed from where they left off when they are retried
 
 ## Quick Start
 

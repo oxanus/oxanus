@@ -3,7 +3,7 @@ use crate::{
     job_envelope::{JobEnvelope, JobId},
     queue::Queue,
     storage_builder::StorageBuilder,
-    storage_internal::StorageInternal,
+    storage_internal::{QueueStats, StorageInternal},
     worker::Worker,
 };
 
@@ -184,6 +184,10 @@ impl Storage {
     /// The number of jobs, or an [`OxanusError`] if the operation fails.
     pub async fn jobs_count(&self) -> Result<usize, OxanusError> {
         self.internal.jobs_count().await
+    }
+
+    pub async fn stats(&self) -> Result<Vec<QueueStats>, OxanusError> {
+        self.internal.stats().await
     }
 
     /// Returns the namespace this storage instance is using.

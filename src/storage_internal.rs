@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     OxanusError,
     job_envelope::{JobEnvelope, JobId},
+    result_collector::JobResultKind,
     worker_registry::CronJob,
 };
 
@@ -30,6 +31,17 @@ struct StorageKeys {
     retry: String,
     processing_queue_prefix: String,
     processes: String,
+    stats: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct QueueStats {
+    pub queue_key: String,
+    pub processed: i64,
+    pub succeeded: i64,
+    pub panicked: i64,
+    pub failed: i64,
+    pub latency: f64,
 }
 
 impl StorageKeys {
@@ -48,6 +60,7 @@ impl StorageKeys {
             retry: format!("{namespace}:retry"),
             processing_queue_prefix: format!("{namespace}:processing:"),
             processes: format!("{namespace}:processes"),
+            stats: format!("{namespace}:stats"),
             namespace,
         }
     }
@@ -376,11 +389,10 @@ impl StorageInternal {
         match result.first() {
             Some(job_id) => {
                 let envelope = self.get(job_id).await?;
-                Ok(envelope
-                    .map_or(0.0, |envelope| {
-                        let now = chrono::Utc::now().timestamp_micros() as u64;
-                        (now - envelope.meta.created_at) as f64
-                    }))
+                Ok(envelope.map_or(0.0, |envelope| {
+                    let now = chrono::Utc::now().timestamp_micros() as u64;
+                    (now - envelope.meta.created_at) as f64
+                }))
             }
             None => Ok(0.0),
         }
@@ -408,6 +420,74 @@ impl StorageInternal {
         let mut redis = self.connection().await?;
         let count: i64 = (*redis).hlen(&self.keys.jobs).await?;
         Ok(count as usize)
+    }
+
+    pub async fn stats(&self) -> Result<Vec<QueueStats>, OxanusError> {
+        let mut redis = self.connection().await?;
+        let list: HashMap<String, i64> = (*redis).hgetall(&self.keys.stats).await?;
+
+        let mut map = HashMap::new();
+
+        for (key, value) in list {
+            let parts: Vec<&str> = key.rsplitn(2, ':').collect();
+            let mut iter = parts.into_iter();
+            let stat_key = iter.next();
+            let queue_key = iter.next();
+
+            if let (Some(queue_key), Some(stat_key)) = (queue_key, stat_key) {
+                let queue_stats =
+                    map.entry(queue_key.to_string())
+                        .or_insert_with(|| QueueStats {
+                            queue_key: queue_key.to_string(),
+                            processed: 0,
+                            succeeded: 0,
+                            panicked: 0,
+                            failed: 0,
+                            latency: 0.0,
+                        });
+
+                match stat_key {
+                    "processed" => queue_stats.processed = value,
+                    "succeeded" => queue_stats.succeeded = value,
+                    "panicked" => queue_stats.panicked = value,
+                    "failed" => queue_stats.failed = value,
+                    _ => {}
+                }
+            }
+        }
+
+        let mut values: Vec<QueueStats> = map.into_values().collect();
+
+        for value in values.iter_mut() {
+            value.latency = self.latency_ms(&value.queue_key).await?;
+        }
+
+        values.sort_by(|a, b| a.queue_key.cmp(&b.queue_key));
+
+        Ok(values)
+    }
+
+    pub async fn update_stats(
+        &self,
+        queue_key: &str,
+        kind: JobResultKind,
+    ) -> Result<(), OxanusError> {
+        let mut redis = self.connection().await?;
+
+        let processed_key = format!("{queue_key}:processed");
+        let status_key = match kind {
+            JobResultKind::Success => format!("{queue_key}:succeeded"),
+            JobResultKind::Panicked => format!("{queue_key}:panicked"),
+            JobResultKind::Failed => format!("{queue_key}:failed"),
+        };
+
+        let _: () = redis::pipe()
+            .hincr(&self.keys.stats, processed_key, 1)
+            .hincr(&self.keys.stats, status_key, 1)
+            .query_async(&mut redis)
+            .await?;
+
+        Ok(())
     }
 
     pub async fn retry_loop(&self, cancel_token: CancellationToken) -> Result<(), OxanusError> {
