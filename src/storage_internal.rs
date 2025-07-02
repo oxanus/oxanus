@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use deadpool_redis::redis::{self, AsyncCommands};
+use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
     num::NonZero,
@@ -34,7 +35,7 @@ struct StorageKeys {
     stats: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct QueueStats {
     pub queue_key: String,
     pub processed: i64,
@@ -435,16 +436,16 @@ impl StorageInternal {
             let queue_key = iter.next();
 
             if let (Some(queue_key), Some(stat_key)) = (queue_key, stat_key) {
-                let queue_stats =
-                    map.entry(queue_key.to_string())
-                        .or_insert_with(|| QueueStats {
-                            queue_key: queue_key.to_string(),
-                            processed: 0,
-                            succeeded: 0,
-                            panicked: 0,
-                            failed: 0,
-                            latency: 0.0,
-                        });
+                let queue_stats = map
+                    .entry(queue_key.to_string())
+                    .or_insert_with(|| QueueStats {
+                        queue_key: queue_key.to_string(),
+                        processed: 0,
+                        succeeded: 0,
+                        panicked: 0,
+                        failed: 0,
+                        latency: 0.0,
+                    });
 
                 match stat_key {
                     "processed" => queue_stats.processed = value,
