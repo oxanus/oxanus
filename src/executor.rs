@@ -46,7 +46,7 @@ where
     };
 
     // Process the job and handle panics
-    let result = match AssertUnwindSafe(worker.process(&full_ctx))
+    let result = match AssertUnwindSafe(process(&worker, full_ctx, &envelope))
         .catch_unwind()
         .await
     {
@@ -107,6 +107,26 @@ where
             Ok(Err(ExecutionError::Panic()))
         }
     }
+}
+
+#[tracing::instrument(skip_all, name = "job", fields(
+    job_id = envelope.id,
+    queue = envelope.queue,
+    worker = envelope.job.name,
+))]
+async fn process<DT, ET>(
+    worker: &BoxedWorker<DT, ET>,
+    full_ctx: Context<DT>,
+    envelope: &JobEnvelope,
+) -> Result<(), ET>
+where
+    DT: Send + Sync + Clone + 'static,
+    ET: std::error::Error + Send + Sync + 'static,
+{
+    let span = tracing::Span::current();
+    span.record("otel.name", &envelope.job.name);
+
+    worker.process(&full_ctx).await
 }
 
 async fn handle_err<DT, ET>(
