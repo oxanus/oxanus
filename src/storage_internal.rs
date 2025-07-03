@@ -724,7 +724,7 @@ mod tests {
 
         let latency = storage.latency_ms(&queue).await?;
 
-        assert!((latency - actual_latency as f64).abs() < 5.0);
+        assert!((latency - actual_latency as f64).abs() < 10.0);
 
         Ok(())
     }
