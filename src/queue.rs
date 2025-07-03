@@ -135,8 +135,51 @@ fn value_to_queue_key(value: serde_json::Value) -> String {
             .join(":"),
         serde_json::Value::Object(object) => object
             .into_iter()
-            .map(|(k, v)| format!(":{}={}", k, value_to_queue_key(v)))
+            .map(|(k, v)| format!("{}={}", k, value_to_queue_key(v)))
             .collect::<Vec<String>>()
             .join(":"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Serialize)]
+    struct TestStaticQueue;
+
+    impl Queue for TestStaticQueue {
+        fn to_config() -> QueueConfig {
+            QueueConfig::as_static("test_static_queue")
+        }
+    }
+
+    #[derive(Serialize)]
+    struct TestDynamicQueue {
+        name: String,
+        age: u32,
+        is_student: bool,
+    }
+
+    impl Queue for TestDynamicQueue {
+        fn to_config() -> QueueConfig {
+            QueueConfig::as_dynamic("test_dynamic_queue")
+        }
+    }
+
+    #[test]
+    fn test_queue_key() {
+        let static_queue = TestStaticQueue;
+        let dynamic_queue = TestDynamicQueue {
+            name: "John".to_string(),
+            age: 30,
+            is_student: true,
+        };
+
+        assert_eq!(static_queue.key(), "test_static_queue");
+        assert_eq!(
+            dynamic_queue.key(),
+            "test_dynamic_queue:name=John:age=30:is_student=true"
+        );
     }
 }
