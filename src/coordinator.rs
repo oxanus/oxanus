@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
+use tokio::task::JoinSet;
 
 use crate::config::Config;
 use crate::context::ContextValue;
@@ -30,13 +31,14 @@ where
     let (result_tx, result_rx) = mpsc::channel::<JobResult>(concurrency);
     let (job_tx, mut job_rx) = mpsc::channel::<WorkerJob>(concurrency);
     let semaphores = Arc::new(SemaphoresMap::new(concurrency));
+    let mut joinset = JoinSet::new();
 
-    tokio::spawn(result_collector::run(
+    joinset.spawn(result_collector::run(
         result_rx,
         Arc::clone(&config),
         Arc::clone(&stats),
     ));
-    tokio::spawn(run_queue_watcher(
+    joinset.spawn(run_queue_watcher(
         Arc::clone(&config),
         queue_config.clone(),
         job_tx.clone(),
@@ -54,6 +56,9 @@ where
                         job,
                     ));
                 }
+            }
+            Some(task_result) = joinset.join_next() => {
+                task_result??;
             }
             _ = config.cancel_token.cancelled() => {
                 break;
@@ -146,7 +151,8 @@ async fn run_queue_watcher<DT, ET>(
     queue_config: QueueConfig,
     job_tx: mpsc::Sender<WorkerJob>,
     semaphores: Arc<SemaphoresMap>,
-) where
+) -> Result<(), OxanusError>
+where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
@@ -155,12 +161,13 @@ async fn run_queue_watcher<DT, ET>(
     loop {
         let all_queues: HashSet<String> = match &queue_config.kind {
             QueueKind::Static { key } => HashSet::from([key.clone()]),
-            QueueKind::Dynamic { prefix, .. } => config
-                .storage
-                .internal
-                .queues(&format!("{}*", prefix))
-                .await
-                .unwrap(),
+            QueueKind::Dynamic { prefix, .. } => {
+                config
+                    .storage
+                    .internal
+                    .queues(&format!("{}*", prefix))
+                    .await?
+            }
         };
         let new_queues: HashSet<String> = all_queues.difference(&tracked_queues).cloned().collect();
 
@@ -183,11 +190,11 @@ async fn run_queue_watcher<DT, ET>(
         }
 
         if config.cancel_token.is_cancelled() {
-            break;
+            return Ok(());
         } else if let QueueKind::Dynamic { sleep_period, .. } = queue_config.kind {
             tokio::time::sleep(sleep_period).await;
         } else {
-            break;
+            return Ok(());
         }
     }
 }
