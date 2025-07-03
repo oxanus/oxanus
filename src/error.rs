@@ -22,8 +22,8 @@ pub enum OxanusError {
     DeadpoolRedisPoolError(#[from] deadpool_redis::PoolError),
     #[error("Deadpool Redis create pool error: {0}")]
     DeadpoolRedisCreatePoolError(#[from] deadpool_redis::CreatePoolError),
-    #[error("Redis not configured")]
-    ConfigRedisNotConfigured,
+    #[error("Config error: {0}")]
+    ConfigError(String),
     #[error("Job panicked: {0}")]
     JobPanicked(String),
     #[error("Job state json error: {0}")]

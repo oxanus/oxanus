@@ -2,8 +2,9 @@ use crate::{OxanusError, Storage, storage_internal::StorageInternal};
 
 pub struct StorageBuilder {
     namespace: Option<String>,
-    pool: Option<deadpool_redis::Pool>,
+    config: Option<deadpool_redis::Config>,
     max_pool_size: Option<usize>,
+    pool: Option<deadpool_redis::Pool>,
 }
 
 impl Default for StorageBuilder {
@@ -16,8 +17,9 @@ impl StorageBuilder {
     pub fn new() -> Self {
         Self {
             namespace: None,
-            pool: None,
+            config: None,
             max_pool_size: None,
+            pool: None,
         }
     }
 
@@ -28,6 +30,11 @@ impl StorageBuilder {
 
     pub fn max_pool_size(mut self, max_pool_size: usize) -> Self {
         self.max_pool_size = Some(max_pool_size);
+        if let Some(cfg) = &mut self.config {
+            if let Some(pool_cfg) = &mut cfg.pool {
+                pool_cfg.max_size = max_pool_size;
+            }
+        }
         self
     }
 
@@ -40,11 +47,10 @@ impl StorageBuilder {
                 create: Some(std::time::Duration::from_millis(100)),
                 recycle: Some(std::time::Duration::from_millis(100)),
             },
-            ..Default::default()
+            queue_mode: Default::default(),
         });
-        let pool = cfg.create_pool(Some(deadpool_redis::Runtime::Tokio1))?;
 
-        self.pool = Some(pool);
+        self.config = Some(cfg);
         Ok(self)
     }
 
@@ -63,8 +69,23 @@ impl StorageBuilder {
     }
 
     pub fn build(self) -> Result<Storage, OxanusError> {
-        let pool = self.pool.ok_or(OxanusError::ConfigRedisNotConfigured)?;
-        let internal = StorageInternal::new(pool, self.namespace);
+        let internal = match (self.pool, self.config) {
+            (Some(pool), None) => StorageInternal::new(pool, self.namespace),
+            (None, Some(config)) => {
+                let pool = config.create_pool(Some(deadpool_redis::Runtime::Tokio1))?;
+                StorageInternal::new(pool, self.namespace)
+            }
+            (None, None) => {
+                return Err(OxanusError::ConfigError(
+                    "You must provide a Redis pool or a Redis config".to_string(),
+                ));
+            }
+            (Some(_), Some(_)) => {
+                return Err(OxanusError::ConfigError(
+                    "Redis pool and config cannot be set at the same time".to_string(),
+                ));
+            }
+        };
 
         Ok(Storage { internal })
     }
