@@ -89,14 +89,14 @@ where
             tracing::warn!("Job {} not found", job_event.job_id);
             if let Err(e) = config.storage.internal.delete(&job_event.job_id).await {
                 #[cfg(feature = "sentry")]
-                sentry_core::capture_error(e);
+                sentry_core::capture_error(&e);
                 tracing::error!("Failed to delete job: {}", e);
             }
             return Ok(());
         }
         Err(e) => {
             #[cfg(feature = "sentry")]
-            sentry_core::capture_error(e);
+            sentry_core::capture_error(&e);
             tracing::error!("Failed to get job envelope: {}", e);
             return Ok(());
         }
@@ -112,7 +112,7 @@ where
             tracing::error!("Invalid job: {} - {}", &envelope.job.name, e);
             if let Err(e) = config.storage.internal.kill(&envelope).await {
                 #[cfg(feature = "sentry")]
-                sentry_core::capture_error(e);
+                sentry_core::capture_error(&e);
                 tracing::error!("Failed to kill job: {}", e);
             }
             return Ok(());
