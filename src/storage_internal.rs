@@ -38,6 +38,7 @@ struct StorageKeys {
 #[derive(Debug, Clone, Serialize)]
 pub struct QueueStats {
     pub queue_key: String,
+    pub enqueued: usize,
     pub processed: i64,
     pub succeeded: i64,
     pub panicked: i64,
@@ -440,6 +441,7 @@ impl StorageInternal {
                     .entry(queue_key.to_string())
                     .or_insert_with(|| QueueStats {
                         queue_key: queue_key.to_string(),
+                        enqueued: 0,
                         processed: 0,
                         succeeded: 0,
                         panicked: 0,
@@ -460,6 +462,7 @@ impl StorageInternal {
         let mut values: Vec<QueueStats> = map.into_values().collect();
 
         for value in values.iter_mut() {
+            value.enqueued = self.enqueued_count(&value.queue_key).await?;
             value.latency = self.latency_ms(&value.queue_key).await?;
         }
 
