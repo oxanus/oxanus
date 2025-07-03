@@ -49,7 +49,7 @@ where
         tokio::select! {
             job = job_rx.recv() => {
                 if let Some(job) = job {
-                    tokio::spawn(process_job(
+                    joinset.spawn(process_job(
                         Arc::clone(&config),
                         ctx.clone(),
                         result_tx.clone(),
@@ -76,7 +76,8 @@ async fn process_job<DT, ET>(
     ctx: ContextValue<DT>,
     result_tx: mpsc::Sender<JobResult>,
     job_event: WorkerJob,
-) where
+) -> Result<(), OxanusError>
+where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
@@ -86,17 +87,18 @@ async fn process_job<DT, ET>(
         Ok(Some(envelope)) => envelope,
         Ok(None) => {
             tracing::warn!("Job {} not found", job_event.job_id);
-            config
-                .storage
-                .internal
-                .delete(&job_event.job_id)
-                .await
-                .expect("Failed to delete job");
-            return;
+            if let Err(e) = config.storage.internal.delete(&job_event.job_id).await {
+                #[cfg(feature = "sentry")]
+                sentry_core::capture_error(e);
+                tracing::error!("Failed to delete job: {}", e);
+            }
+            return Ok(());
         }
         Err(e) => {
-            println!("Failed to get job envelope: {}", e);
-            return;
+            #[cfg(feature = "sentry")]
+            sentry_core::capture_error(e);
+            tracing::error!("Failed to get job envelope: {}", e);
+            return Ok(());
         }
     };
 
@@ -107,25 +109,24 @@ async fn process_job<DT, ET>(
     {
         Ok(job) => job,
         Err(e) => {
-            println!("Invalid job: {} - {}", &envelope.job.name, e);
-            config
-                .storage
-                .internal
-                .kill(&envelope)
-                .await
-                .expect("Failed to kill job");
-            return;
+            tracing::error!("Invalid job: {} - {}", &envelope.job.name, e);
+            if let Err(e) = config.storage.internal.kill(&envelope).await {
+                #[cfg(feature = "sentry")]
+                sentry_core::capture_error(e);
+                tracing::error!("Failed to kill job: {}", e);
+            }
+            return Ok(());
         }
     };
 
     let result_tx = result_tx.clone();
     let queue_key = envelope.queue.clone();
-    let result = executor::run(config, job, envelope, ctx.clone())
-        .await
-        .expect("Failed to run job");
+    let result = executor::run(config, job, envelope, ctx.clone()).await?;
     drop(job_event.permit);
 
     process_result(result_tx, result, queue_key).await;
+
+    Ok(())
 }
 
 async fn process_result<ET>(
