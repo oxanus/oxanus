@@ -3,7 +3,7 @@ use crate::{OxanusError, Storage, storage_internal::StorageInternal};
 pub struct StorageBuilder {
     namespace: Option<String>,
     pool: Option<deadpool_redis::Pool>,
-    pool_size: Option<usize>,
+    max_pool_size: Option<usize>,
 }
 
 impl Default for StorageBuilder {
@@ -17,7 +17,7 @@ impl StorageBuilder {
         Self {
             namespace: None,
             pool: None,
-            pool_size: None,
+            max_pool_size: None,
         }
     }
 
@@ -26,15 +26,15 @@ impl StorageBuilder {
         self
     }
 
-    pub fn pool_size(mut self, pool_size: usize) -> Self {
-        self.pool_size = Some(pool_size);
+    pub fn max_pool_size(mut self, max_pool_size: usize) -> Self {
+        self.max_pool_size = Some(max_pool_size);
         self
     }
 
     pub fn from_redis_url(mut self, url: impl Into<String>) -> Result<Self, OxanusError> {
         let mut cfg = deadpool_redis::Config::from_url(url);
         cfg.pool = Some(deadpool_redis::PoolConfig {
-            max_size: self.pool_size.unwrap_or(50),
+            max_size: self.max_pool_size.unwrap_or(50),
             timeouts: deadpool_redis::Timeouts {
                 wait: Some(std::time::Duration::from_millis(100)),
                 create: Some(std::time::Duration::from_millis(100)),
