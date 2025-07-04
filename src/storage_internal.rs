@@ -644,7 +644,7 @@ impl StorageInternal {
                             tracing::info!(
                                 job_id = job_id,
                                 queue = envelope.queue,
-                                job = envelope.job.name,
+                                worker = envelope.job.name,
                                 "Resurrecting job"
                             );
                             self.enqueue(envelope).await?;

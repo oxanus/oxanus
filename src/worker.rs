@@ -11,7 +11,7 @@ pub trait Worker: Send + Sync + UnwindSafe {
     async fn process(&self, data: &Context<Self::Context>) -> Result<(), Self::Error>;
 
     fn max_retries(&self) -> u32 {
-        1
+        2
     }
 
     fn retry_delay(&self, retries: u32) -> u64 {

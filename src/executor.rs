@@ -31,7 +31,7 @@ where
     tracing::info!(
         job_id = envelope.id,
         queue = envelope.queue,
-        job = envelope.job.name,
+        worker = envelope.job.name,
         "Job started"
     );
     let start = std::time::Instant::now();
@@ -90,7 +90,12 @@ where
                     #[cfg(feature = "sentry")]
                     sentry_core::capture_error(e);
 
-                    tracing::error!("Job failed: {}", e);
+                    tracing::error!(
+                        job_id = envelope.id,
+                        queue = envelope.queue,
+                        worker = &envelope.job.name,
+                        "Job failed"
+                    );
 
                     handle_err(config, &e.to_string(), envelope, retry_delay, max_retries).await;
                 }
@@ -113,6 +118,8 @@ where
     job_id = envelope.id,
     queue = envelope.queue,
     worker = envelope.job.name,
+    args = %envelope.job.args,
+    success,
 ))]
 async fn process<DT, ET>(
     worker: &BoxedWorker<DT, ET>,
@@ -124,9 +131,11 @@ where
     ET: std::error::Error + Send + Sync + 'static,
 {
     let span = tracing::Span::current();
-    span.record("otel.name", &envelope.job.name);
+    let result = worker.process(&full_ctx).await;
 
-    worker.process(&full_ctx).await
+    span.record("success", result.is_ok());
+
+    result
 }
 
 async fn handle_err<DT, ET>(
