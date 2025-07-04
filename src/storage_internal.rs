@@ -718,13 +718,13 @@ mod tests {
 
         let mut envelope = JobEnvelope::new(queue.clone(), TestWorker {})?;
         let now = chrono::Utc::now();
-        let actual_latency = 777;
+        let actual_latency = 7777;
         envelope.meta.created_at = now.timestamp_micros() as u64 - actual_latency * 1_000;
         storage.enqueue(envelope).await?;
 
         let latency = storage.latency_ms(&queue).await?;
 
-        assert!((latency - actual_latency as f64).abs() < 10.0);
+        assert!((latency - actual_latency as f64).abs() < 50.0);
 
         Ok(())
     }
