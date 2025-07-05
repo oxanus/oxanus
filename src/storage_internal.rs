@@ -36,6 +36,16 @@ struct StorageKeys {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct Stats {
+    pub jobs: usize,
+    pub dead_count: usize,
+    pub scheduled_count: usize,
+    pub retries_count: usize,
+    pub processes: Vec<Process>,
+    pub queues: Vec<QueueStats>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct QueueStats {
     pub key: String,
 
@@ -66,6 +76,7 @@ pub struct DynamicQueueStats {
 pub struct Process {
     pub hostname: String,
     pub pid: u32,
+    pub last_heartbeat: i64,
 }
 
 impl StorageKeys {
@@ -446,7 +457,7 @@ impl StorageInternal {
         Ok(count as usize)
     }
 
-    pub async fn stats(&self) -> Result<Vec<QueueStats>, OxanusError> {
+    pub async fn stats(&self) -> Result<Stats, OxanusError> {
         let mut redis = self.connection().await?;
         let list: HashMap<String, i64> = (*redis).hgetall(&self.keys.stats).await?;
 
@@ -548,7 +559,14 @@ impl StorageInternal {
 
         values.sort_by(|a, b| a.key.cmp(&b.key));
 
-        Ok(values)
+        Ok(Stats {
+            jobs: self.jobs_count().await?,
+            dead_count: self.dead_count().await?,
+            scheduled_count: self.scheduled_count().await?,
+            retries_count: self.retries_count().await?,
+            processes: self.processes().await?,
+            queues: values,
+        })
     }
 
     pub async fn update_stats(
@@ -631,8 +649,8 @@ impl StorageInternal {
 
     pub async fn processes(&self) -> Result<Vec<Process>, OxanusError> {
         let mut redis = self.connection().await?;
-        let process_ids: Vec<String> = (*redis)
-            .zrangebyscore(
+        let process_ids: Vec<(String, f64)> = (*redis)
+            .zrangebyscore_withscores(
                 &self.keys.processes,
                 chrono::Utc::now().timestamp() - RESURRECT_THRESHOLD_SECS,
                 chrono::Utc::now().timestamp(),
@@ -641,7 +659,7 @@ impl StorageInternal {
 
         let mut processes_with_ports = vec![];
 
-        for process in process_ids {
+        for (process, last_heartbeat) in process_ids {
             let parts: Vec<&str> = process.rsplitn(2, '-').collect();
             let mut parts_iter = parts.into_iter();
             let pid = match parts_iter.next().map(|pid| pid.parse::<u32>().ok()) {
@@ -652,7 +670,11 @@ impl StorageInternal {
                 Some(hostname) => hostname.to_string(),
                 None => continue,
             };
-            processes_with_ports.push(Process { hostname, pid });
+            processes_with_ports.push(Process {
+                hostname,
+                pid,
+                last_heartbeat: last_heartbeat as i64,
+            });
         }
 
         Ok(processes_with_ports)

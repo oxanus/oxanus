@@ -3,7 +3,7 @@ use crate::{
     job_envelope::{JobEnvelope, JobId},
     queue::Queue,
     storage_builder::StorageBuilder,
-    storage_internal::{Process, QueueStats, StorageInternal},
+    storage_internal::{Process, Stats, StorageInternal},
     worker::Worker,
 };
 
@@ -191,7 +191,7 @@ impl Storage {
     /// # Returns
     ///
     /// The stats for all queues, or an [`OxanusError`] if the operation fails.
-    pub async fn stats(&self) -> Result<Vec<QueueStats>, OxanusError> {
+    pub async fn stats(&self) -> Result<Stats, OxanusError> {
         self.internal.stats().await
     }
 

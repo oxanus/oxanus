@@ -72,58 +72,58 @@ pub async fn test_stats() -> TestResult {
 
     let stats = storage.stats().await?;
 
-    assert_eq!(stats.len(), 2);
-    assert_eq!(stats[0].key, "dynamic");
-    assert_eq!(stats[0].queues.len(), 4);
+    assert_eq!(stats.queues.len(), 2);
+    assert_eq!(stats.queues[0].key, "dynamic");
+    assert_eq!(stats.queues[0].queues.len(), 4);
 
-    assert_eq!(stats[0].enqueued, 0);
-    assert_eq!(stats[0].processed, 6);
-    assert_eq!(stats[0].succeeded, 6);
-    assert_eq!(stats[0].panicked, 0);
-    assert_eq!(stats[0].failed, 0);
-    assert_eq!(stats[0].latency, 0.0);
+    assert_eq!(stats.queues[0].enqueued, 0);
+    assert_eq!(stats.queues[0].processed, 6);
+    assert_eq!(stats.queues[0].succeeded, 6);
+    assert_eq!(stats.queues[0].panicked, 0);
+    assert_eq!(stats.queues[0].failed, 0);
+    assert_eq!(stats.queues[0].latency, 0.0);
 
-    assert_eq!(stats[0].queues[0].suffix, "1");
-    assert_eq!(stats[0].queues[0].enqueued, 0);
-    assert_eq!(stats[0].queues[0].processed, 2);
-    assert_eq!(stats[0].queues[0].succeeded, 2);
-    assert_eq!(stats[0].queues[0].panicked, 0);
-    assert_eq!(stats[0].queues[0].failed, 0);
-    assert_eq!(stats[0].queues[0].latency, 0.0);
+    assert_eq!(stats.queues[0].queues[0].suffix, "1");
+    assert_eq!(stats.queues[0].queues[0].enqueued, 0);
+    assert_eq!(stats.queues[0].queues[0].processed, 2);
+    assert_eq!(stats.queues[0].queues[0].succeeded, 2);
+    assert_eq!(stats.queues[0].queues[0].panicked, 0);
+    assert_eq!(stats.queues[0].queues[0].failed, 0);
+    assert_eq!(stats.queues[0].queues[0].latency, 0.0);
 
-    assert_eq!(stats[0].queues[1].suffix, "2");
-    assert_eq!(stats[0].queues[1].enqueued, 0);
-    assert_eq!(stats[0].queues[1].processed, 2);
-    assert_eq!(stats[0].queues[1].succeeded, 2);
-    assert_eq!(stats[0].queues[1].panicked, 0);
-    assert_eq!(stats[0].queues[1].failed, 0);
-    assert_eq!(stats[0].queues[1].latency, 0.0);
+    assert_eq!(stats.queues[0].queues[1].suffix, "2");
+    assert_eq!(stats.queues[0].queues[1].enqueued, 0);
+    assert_eq!(stats.queues[0].queues[1].processed, 2);
+    assert_eq!(stats.queues[0].queues[1].succeeded, 2);
+    assert_eq!(stats.queues[0].queues[1].panicked, 0);
+    assert_eq!(stats.queues[0].queues[1].failed, 0);
+    assert_eq!(stats.queues[0].queues[1].latency, 0.0);
 
-    assert_eq!(stats[0].queues[2].suffix, "3");
-    assert_eq!(stats[0].queues[2].enqueued, 0);
-    assert_eq!(stats[0].queues[2].processed, 1);
-    assert_eq!(stats[0].queues[2].succeeded, 1);
-    assert_eq!(stats[0].queues[2].panicked, 0);
-    assert_eq!(stats[0].queues[2].failed, 0);
-    assert_eq!(stats[0].queues[2].latency, 0.0);
+    assert_eq!(stats.queues[0].queues[2].suffix, "3");
+    assert_eq!(stats.queues[0].queues[2].enqueued, 0);
+    assert_eq!(stats.queues[0].queues[2].processed, 1);
+    assert_eq!(stats.queues[0].queues[2].succeeded, 1);
+    assert_eq!(stats.queues[0].queues[2].panicked, 0);
+    assert_eq!(stats.queues[0].queues[2].failed, 0);
+    assert_eq!(stats.queues[0].queues[2].latency, 0.0);
 
-    assert_eq!(stats[0].queues[3].suffix, "4");
-    assert_eq!(stats[0].queues[3].enqueued, 0);
-    assert_eq!(stats[0].queues[3].processed, 1);
-    assert_eq!(stats[0].queues[3].succeeded, 1);
-    assert_eq!(stats[0].queues[3].panicked, 0);
-    assert_eq!(stats[0].queues[3].failed, 0);
-    assert_eq!(stats[0].queues[3].latency, 0.0);
+    assert_eq!(stats.queues[0].queues[3].suffix, "4");
+    assert_eq!(stats.queues[0].queues[3].enqueued, 0);
+    assert_eq!(stats.queues[0].queues[3].processed, 1);
+    assert_eq!(stats.queues[0].queues[3].succeeded, 1);
+    assert_eq!(stats.queues[0].queues[3].panicked, 0);
+    assert_eq!(stats.queues[0].queues[3].failed, 0);
+    assert_eq!(stats.queues[0].queues[3].latency, 0.0);
 
-    assert_eq!(stats[1].key, "static");
-    assert_eq!(stats[1].queues.len(), 0);
+    assert_eq!(stats.queues[1].key, "static");
+    assert_eq!(stats.queues[1].queues.len(), 0);
 
-    assert_eq!(stats[1].enqueued, 0);
-    assert_eq!(stats[1].processed, 2);
-    assert_eq!(stats[1].succeeded, 2);
-    assert_eq!(stats[1].panicked, 0);
-    assert_eq!(stats[1].failed, 0);
-    assert_eq!(stats[1].latency, 0.0);
+    assert_eq!(stats.queues[1].enqueued, 0);
+    assert_eq!(stats.queues[1].processed, 2);
+    assert_eq!(stats.queues[1].succeeded, 2);
+    assert_eq!(stats.queues[1].panicked, 0);
+    assert_eq!(stats.queues[1].failed, 0);
+    assert_eq!(stats.queues[1].latency, 0.0);
 
     Ok(())
 }
