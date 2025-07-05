@@ -62,6 +62,12 @@ pub struct DynamicQueueStats {
     pub latency: f64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct Process {
+    pub hostname: String,
+    pub pid: u32,
+}
+
 impl StorageKeys {
     pub fn new(namespace: impl Into<String>) -> Self {
         let namespace = namespace.into();
@@ -484,7 +490,8 @@ impl StorageInternal {
             if let Some(queue_dynamic_key) = queue_dynamic_key {
                 if !queue_stats
                     .queues
-                    .iter_mut().any(|q| q.suffix == queue_dynamic_key)
+                    .iter_mut()
+                    .any(|q| q.suffix == queue_dynamic_key)
                 {
                     queue_stats.queues.push(DynamicQueueStats {
                         suffix: queue_dynamic_key.to_string(),
@@ -620,6 +627,35 @@ impl StorageInternal {
             )
             .await?;
         Ok(())
+    }
+
+    pub async fn processes(&self) -> Result<Vec<Process>, OxanusError> {
+        let mut redis = self.connection().await?;
+        let process_ids: Vec<String> = (*redis)
+            .zrangebyscore(
+                &self.keys.processes,
+                chrono::Utc::now().timestamp() - RESURRECT_THRESHOLD_SECS,
+                chrono::Utc::now().timestamp(),
+            )
+            .await?;
+
+        let mut processes_with_ports = vec![];
+
+        for process in process_ids {
+            let parts: Vec<&str> = process.rsplitn(2, '-').collect();
+            let mut parts_iter = parts.into_iter();
+            let pid = match parts_iter.next().map(|pid| pid.parse::<u32>().ok()) {
+                Some(Some(pid)) => pid,
+                _ => continue,
+            };
+            let hostname = match parts_iter.next() {
+                Some(hostname) => hostname.to_string(),
+                None => continue,
+            };
+            processes_with_ports.push(Process { hostname, pid });
+        }
+
+        Ok(processes_with_ports)
     }
 
     pub async fn resurrect_loop(&self, cancel_token: CancellationToken) -> Result<(), OxanusError> {
