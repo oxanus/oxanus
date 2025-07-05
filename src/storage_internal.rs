@@ -787,7 +787,7 @@ impl StorageInternal {
             .into_string()
             .unwrap_or_else(|_| "unknown".to_string());
         let pid = std::process::id();
-        format!("{}-{}", hostname, pid)
+        format!("{hostname}-{pid}")
     }
 
     fn namespace_queue(&self, queue: &str) -> String {

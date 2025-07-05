@@ -82,7 +82,7 @@ impl Throttler {
     }
 
     fn build_key(key: &str) -> String {
-        format!("oxanus:throttler:{}", key)
+        format!("oxanus:throttler:{key}")
     }
 
     fn window_s(&self) -> u64 {

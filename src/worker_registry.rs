@@ -53,7 +53,7 @@ impl<DT, ET> WorkerRegistry<DT, ET> {
     {
         let name = type_name::<T>();
         let schedule = cron::Schedule::from_str(schedule)
-            .unwrap_or_else(|_| panic!("{}: Invalid cron schedule: {}", name, schedule));
+            .unwrap_or_else(|_| panic!("{name}: Invalid cron schedule: {schedule}"));
 
         self.register::<T>();
         self.schedules.insert(
@@ -72,13 +72,12 @@ impl<DT, ET> WorkerRegistry<DT, ET> {
         json: serde_json::Value,
     ) -> Result<BoxedJob<DT, ET>, OxanusError> {
         let factory = self.jobs.get(name).ok_or_else(|| {
-            OxanusError::GenericError(format!("Job type {} not registered", name))
+            OxanusError::GenericError(format!("Job type {name} not registered"))
         })?;
         match factory(json) {
             Ok(job) => Ok(job),
             Err(e) => Err(OxanusError::JobFactoryError(format!(
-                "Failed to build job {}: {}",
-                name, e
+                "Failed to build job {name}: {e}"
             ))),
         }
     }

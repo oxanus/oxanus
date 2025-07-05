@@ -64,7 +64,7 @@ impl StorageBuilder {
     }
 
     pub fn from_env_var(self, var_name: &str) -> Result<Self, OxanusError> {
-        let url = std::env::var(var_name).unwrap_or_else(|_| panic!("{} is not set", var_name));
+        let url = std::env::var(var_name).unwrap_or_else(|_| panic!("{var_name} is not set"));
         self.from_redis_url(url)
     }
 

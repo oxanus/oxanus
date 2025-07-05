@@ -166,7 +166,7 @@ where
                 config
                     .storage
                     .internal
-                    .queues(&format!("{}*", prefix))
+                    .queues(&format!("{prefix}*"))
                     .await?
             }
         };
