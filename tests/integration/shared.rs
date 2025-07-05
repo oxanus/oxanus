@@ -77,6 +77,7 @@ pub fn redis_pool() -> deadpool_redis::Pool {
     let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL is not set");
     let mut cfg = deadpool_redis::Config::from_url(redis_url);
     cfg.pool = Some(deadpool_redis::PoolConfig {
+        max_size: 10,
         timeouts: deadpool_redis::Timeouts {
             wait: Some(std::time::Duration::from_millis(50)),
             create: Some(std::time::Duration::from_millis(50)),
