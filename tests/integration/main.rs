@@ -5,4 +5,5 @@ mod panic;
 mod retry;
 mod shared;
 mod standard;
+mod stats;
 mod unique;

@@ -37,7 +37,23 @@ struct StorageKeys {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct QueueStats {
-    pub queue_key: String,
+    pub key: String,
+
+    pub enqueued: usize,
+    pub processed: i64,
+    pub succeeded: i64,
+    pub panicked: i64,
+    pub failed: i64,
+    pub latency: f64,
+
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub queues: Vec<DynamicQueueStats>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DynamicQueueStats {
+    pub suffix: String,
+
     pub enqueued: usize,
     pub processed: i64,
     pub succeeded: i64,
@@ -432,15 +448,46 @@ impl StorageInternal {
 
         for (key, value) in list {
             let parts: Vec<&str> = key.rsplitn(2, ':').collect();
-            let mut iter = parts.into_iter();
-            let stat_key = iter.next();
-            let queue_key = iter.next();
+            let mut parts_iter = parts.into_iter();
+            let stat_key = match parts_iter.next() {
+                Some(stat_key) => stat_key,
+                None => continue,
+            };
+            let queue_full_key = match parts_iter.next() {
+                Some(queue_key) => queue_key,
+                None => continue,
+            };
 
-            if let (Some(queue_key), Some(stat_key)) = (queue_key, stat_key) {
-                let queue_stats = map
-                    .entry(queue_key.to_string())
-                    .or_insert_with(|| QueueStats {
-                        queue_key: queue_key.to_string(),
+            let queue_key_parts: Vec<&str> = queue_full_key.splitn(2, ':').collect();
+            let mut queue_key_parts_iter = queue_key_parts.into_iter();
+
+            let queue_key = match queue_key_parts_iter.next() {
+                Some(queue_key) => queue_key,
+                None => continue,
+            };
+
+            let queue_dynamic_key = queue_key_parts_iter.next();
+
+            let queue_stats = map
+                .entry(queue_key.to_string())
+                .or_insert_with(|| QueueStats {
+                    key: queue_key.to_string(),
+                    enqueued: 0,
+                    processed: 0,
+                    succeeded: 0,
+                    panicked: 0,
+                    failed: 0,
+                    latency: 0.0,
+                    queues: vec![],
+                });
+
+            if let Some(queue_dynamic_key) = queue_dynamic_key {
+                if !queue_stats
+                    .queues
+                    .iter_mut().any(|q| q.suffix == queue_dynamic_key)
+                {
+                    queue_stats.queues.push(DynamicQueueStats {
+                        suffix: queue_dynamic_key.to_string(),
                         enqueued: 0,
                         processed: 0,
                         succeeded: 0,
@@ -448,25 +495,51 @@ impl StorageInternal {
                         failed: 0,
                         latency: 0.0,
                     });
-
-                match stat_key {
-                    "processed" => queue_stats.processed = value,
-                    "succeeded" => queue_stats.succeeded = value,
-                    "panicked" => queue_stats.panicked = value,
-                    "failed" => queue_stats.failed = value,
-                    _ => {}
                 }
+
+                if let Some(existing) = queue_stats
+                    .queues
+                    .iter_mut()
+                    .find(|q| q.suffix == queue_dynamic_key)
+                {
+                    match stat_key {
+                        "processed" => existing.processed += value,
+                        "succeeded" => existing.succeeded += value,
+                        "panicked" => existing.panicked += value,
+                        "failed" => existing.failed += value,
+                        _ => {}
+                    }
+                }
+            }
+
+            match stat_key {
+                "processed" => queue_stats.processed += value,
+                "succeeded" => queue_stats.succeeded += value,
+                "panicked" => queue_stats.panicked += value,
+                "failed" => queue_stats.failed += value,
+                _ => {}
             }
         }
 
         let mut values: Vec<QueueStats> = map.into_values().collect();
 
         for value in values.iter_mut() {
-            value.enqueued = self.enqueued_count(&value.queue_key).await?;
-            value.latency = self.latency_ms(&value.queue_key).await?;
+            value.enqueued = self.enqueued_count(&value.key).await?;
+            if value.queues.is_empty() {
+                value.latency = self.latency_ms(&value.key).await?;
+            } else {
+                for dynamic_queue in value.queues.iter() {
+                    let latency = self.latency_ms(&dynamic_queue.suffix).await?;
+                    if value.latency < latency {
+                        value.latency = latency;
+                    }
+                }
+            }
+
+            value.queues.sort_by(|a, b| a.suffix.cmp(&b.suffix));
         }
 
-        values.sort_by(|a, b| a.queue_key.cmp(&b.queue_key));
+        values.sort_by(|a, b| a.key.cmp(&b.key));
 
         Ok(values)
     }
