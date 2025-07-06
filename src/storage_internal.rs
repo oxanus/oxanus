@@ -891,6 +891,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_ping() -> TestResult {
+        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()));
+        let mut redis = storage.connection().await?;
+        storage.ping(&mut redis).await?;
+
+        let process = storage.current_process();
+        let process_data = storage.get_process_data(&process.id()).await?;
+        assert!(process_data.is_some());
+        let process = process_data.unwrap();
+        assert_eq!(
+            process.hostname,
+            gethostname::gethostname().to_string_lossy().to_string()
+        );
+        assert_eq!(process.pid, std::process::id());
+        assert!(process.heartbeat_at > chrono::Utc::now().timestamp() - 3);
+        assert!(process.memory_usage.is_some());
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_latency() -> TestResult {
         let storage = StorageInternal::new(redis_pool().await?, Some(random_string()));
         let queue = random_string();
