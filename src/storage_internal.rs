@@ -30,6 +30,7 @@ struct StorageKeys {
     dead: String,
     schedule: String,
     retry: String,
+    queue_prefix: String,
     processing_queue_prefix: String,
     processes: String,
     processes_data: String,
@@ -101,6 +102,7 @@ impl StorageKeys {
             dead: format!("{namespace}:dead"),
             schedule: format!("{namespace}:schedule"),
             retry: format!("{namespace}:retry"),
+            queue_prefix: format!("{namespace}:queue:"),
             processing_queue_prefix: format!("{namespace}:processing:"),
             processes: format!("{namespace}:processes"),
             processes_data: format!("{namespace}:processes_data"),
@@ -133,10 +135,20 @@ impl StorageInternal {
             .map_err(OxanusError::DeadpoolRedisPoolError)
     }
 
-    pub async fn queues(&self, pattern: &str) -> Result<HashSet<String>, OxanusError> {
+    pub async fn queue_keys(&self, pattern: &str) -> Result<HashSet<String>, OxanusError> {
         let mut conn = self.connection().await?;
         let keys: Vec<String> = (*conn).keys(self.namespace_queue(pattern)).await?;
         Ok(keys.into_iter().collect())
+    }
+
+    pub async fn queues(&self, pattern: &str) -> Result<Vec<String>, OxanusError> {
+        let queue_keys = self.queue_keys(pattern).await?;
+        // remove namespace prefix from beginning of each key
+        let queues = queue_keys
+            .into_iter()
+            .map(|key| key.replace(&format!("{}:", &self.keys.queue_prefix), ""))
+            .collect();
+        Ok(queues)
     }
 
     pub async fn enqueue(&self, envelope: JobEnvelope) -> Result<JobId, OxanusError> {
@@ -471,6 +483,11 @@ impl StorageInternal {
         let list: HashMap<String, i64> = (*redis).hgetall(&self.keys.stats).await?;
 
         let mut map = HashMap::new();
+        let mut queue_values = Vec::new();
+
+        for queue in self.queues("*").await? {
+            queue_values.push((queue, "processed".to_string(), 0));
+        }
 
         for (key, value) in list {
             let parts: Vec<&str> = key.rsplitn(2, ':').collect();
@@ -484,7 +501,11 @@ impl StorageInternal {
                 None => continue,
             };
 
-            let queue_key_parts: Vec<&str> = queue_full_key.splitn(2, ':').collect();
+            queue_values.push((queue_full_key.to_string(), stat_key.to_string(), value));
+        }
+
+        for (queue_full_key, stat_key, value) in queue_values {
+            let queue_key_parts: Vec<&str> = queue_full_key.splitn(2, '#').collect();
             let mut queue_key_parts_iter = queue_key_parts.into_iter();
 
             let queue_key = match queue_key_parts_iter.next() {
@@ -529,7 +550,7 @@ impl StorageInternal {
                     .iter_mut()
                     .find(|q| q.suffix == queue_dynamic_key)
                 {
-                    match stat_key {
+                    match stat_key.as_str() {
                         "processed" => existing.processed += value,
                         "succeeded" => existing.succeeded += value,
                         "panicked" => existing.panicked += value,
@@ -539,7 +560,7 @@ impl StorageInternal {
                 }
             }
 
-            match stat_key {
+            match stat_key.as_str() {
                 "processed" => queue_stats.processed += value,
                 "succeeded" => queue_stats.succeeded += value,
                 "panicked" => queue_stats.panicked += value,
@@ -551,15 +572,22 @@ impl StorageInternal {
         let mut values: Vec<QueueStats> = map.into_values().collect();
 
         for value in values.iter_mut() {
-            value.enqueued = self.enqueued_count(&value.key).await?;
             if value.queues.is_empty() {
+                value.enqueued = self.enqueued_count(&value.key).await?;
                 value.latency = self.latency_ms(&value.key).await?;
             } else {
-                for dynamic_queue in value.queues.iter() {
-                    let latency = self.latency_ms(&dynamic_queue.suffix).await?;
+                for dynamic_queue in value.queues.iter_mut() {
+                    let dynamic_queue_key = format!("{}#{}", value.key, dynamic_queue.suffix);
+                    let enqueued = self.enqueued_count(&dynamic_queue_key).await?;
+                    let latency = self.latency_ms(&dynamic_queue_key).await?;
+
+                    dynamic_queue.enqueued = enqueued;
+                    dynamic_queue.latency = latency;
+
                     if value.latency < latency {
                         value.latency = latency;
                     }
+                    value.enqueued += enqueued;
                 }
             }
 
@@ -864,7 +892,7 @@ impl StorageInternal {
         if queue.starts_with(self.keys.namespace.as_str()) {
             queue.to_string()
         } else {
-            format!("{}:{}", self.keys.namespace, queue)
+            format!("{}:{}", self.keys.queue_prefix, queue)
         }
     }
 }

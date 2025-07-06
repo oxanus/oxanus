@@ -10,7 +10,7 @@ pub trait Queue: Send + Sync + Serialize {
             QueueKind::Static { key } => key,
             QueueKind::Dynamic { prefix, .. } => {
                 let value = serde_json::to_value(self).unwrap_or_default();
-                format!("{}:{}", prefix, value_to_queue_key(value))
+                format!("{}#{}", prefix, value_to_queue_key(value))
             }
         }
     }
@@ -179,7 +179,7 @@ mod tests {
         assert_eq!(static_queue.key(), "test_static_queue");
         assert_eq!(
             dynamic_queue.key(),
-            "test_dynamic_queue:name=John:age=30:is_student=true"
+            "test_dynamic_queue#name=John:age=30:is_student=true"
         );
     }
 }
