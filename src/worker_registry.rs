@@ -71,9 +71,10 @@ impl<DT, ET> WorkerRegistry<DT, ET> {
         name: &str,
         json: serde_json::Value,
     ) -> Result<BoxedJob<DT, ET>, OxanusError> {
-        let factory = self.jobs.get(name).ok_or_else(|| {
-            OxanusError::GenericError(format!("Job type {name} not registered"))
-        })?;
+        let factory = self
+            .jobs
+            .get(name)
+            .ok_or_else(|| OxanusError::GenericError(format!("Job type {name} not registered")))?;
         match factory(json) {
             Ok(job) => Ok(job),
             Err(e) => Err(OxanusError::JobFactoryError(format!(

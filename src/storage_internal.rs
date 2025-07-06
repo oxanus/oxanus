@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use deadpool_redis::redis::{self, AsyncCommands};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     num::NonZero,
@@ -32,6 +32,7 @@ struct StorageKeys {
     retry: String,
     processing_queue_prefix: String,
     processes: String,
+    processes_data: String,
     stats: String,
 }
 
@@ -72,11 +73,18 @@ pub struct DynamicQueueStats {
     pub latency: f64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Process {
     pub hostname: String,
     pub pid: u32,
-    pub last_heartbeat: i64,
+    pub heartbeat_at: i64,
+    pub memory_usage: Option<usize>,
+}
+
+impl Process {
+    pub fn id(&self) -> String {
+        format!("{}-{}", self.hostname, self.pid)
+    }
 }
 
 impl StorageKeys {
@@ -95,6 +103,7 @@ impl StorageKeys {
             retry: format!("{namespace}:retry"),
             processing_queue_prefix: format!("{namespace}:processing:"),
             processes: format!("{namespace}:processes"),
+            processes_data: format!("{namespace}:processes_data"),
             stats: format!("{namespace}:stats"),
             namespace,
         }
@@ -216,7 +225,7 @@ impl StorageInternal {
 
     pub async fn retry_in(&self, job_id: JobId, delay_s: u64) -> Result<(), OxanusError> {
         let updated_envelope = self
-            .get(&job_id)
+            .get_job(&job_id)
             .await?
             .ok_or(OxanusError::JobNotFound)?
             .with_retries_incremented();
@@ -282,7 +291,7 @@ impl StorageInternal {
         Ok(job_id)
     }
 
-    pub async fn get(&self, id: &JobId) -> Result<Option<JobEnvelope>, OxanusError> {
+    pub async fn get_job(&self, id: &JobId) -> Result<Option<JobEnvelope>, OxanusError> {
         let mut redis = self.connection().await?;
         let envelope: Option<String> = redis.hget(&self.keys.jobs, id).await?;
         match envelope {
@@ -291,7 +300,7 @@ impl StorageInternal {
         }
     }
 
-    pub async fn update(&self, envelope: &JobEnvelope) -> Result<(), OxanusError> {
+    pub async fn update_job(&self, envelope: &JobEnvelope) -> Result<(), OxanusError> {
         let mut redis = self.connection().await?;
         let _: () = redis::pipe()
             .hset(
@@ -309,16 +318,16 @@ impl StorageInternal {
         id: &JobId,
         state: serde_json::Value,
     ) -> Result<Option<JobEnvelope>, OxanusError> {
-        let mut envelope = match self.get(id).await? {
+        let mut envelope = match self.get_job(id).await? {
             Some(envelope) => envelope,
             None => return Ok(None),
         };
         envelope.meta.state = Some(state);
-        self.update(&envelope).await?;
+        self.update_job(&envelope).await?;
         Ok(Some(envelope))
     }
 
-    pub async fn delete(&self, id: &JobId) -> Result<(), OxanusError> {
+    pub async fn delete_job(&self, id: &JobId) -> Result<(), OxanusError> {
         let mut redis = self.connection().await?;
         let _: () = redis::pipe()
             .hdel(&self.keys.jobs, id)
@@ -423,7 +432,7 @@ impl StorageInternal {
         let result: Vec<String> = (*redis).lrange(self.namespace_queue(queue), 0, 0).await?;
         match result.first() {
             Some(job_id) => {
-                let envelope = self.get(job_id).await?;
+                let envelope = self.get_job(job_id).await?;
                 Ok(envelope.map_or(0.0, |envelope| {
                     let now = chrono::Utc::now().timestamp_micros() as u64;
                     (now - envelope.meta.created_at) as f64
@@ -637,47 +646,51 @@ impl StorageInternal {
     }
 
     pub async fn ping(&self, redis: &mut deadpool_redis::Connection) -> Result<(), OxanusError> {
-        let _: () = (*redis)
+        let process = self.current_process();
+        let _: () = redis::pipe()
             .zadd(
                 &self.keys.processes,
-                self.current_process_id(),
+                process.id(),
                 chrono::Utc::now().timestamp(),
             )
+            .hset(
+                &self.keys.processes_data,
+                process.id(),
+                serde_json::to_string(&process)?,
+            )
+            .query_async(redis)
             .await?;
         Ok(())
     }
 
+    pub async fn get_process_data(&self, id: &str) -> Result<Option<Process>, OxanusError> {
+        let mut redis = self.connection().await?;
+        let process_str: Option<String> = (*redis).hget(&self.keys.processes_data, id).await?;
+        match process_str {
+            Some(process_str) => Ok(Some(serde_json::from_str(&process_str)?)),
+            None => Ok(None),
+        }
+    }
+
     pub async fn processes(&self) -> Result<Vec<Process>, OxanusError> {
         let mut redis = self.connection().await?;
-        let process_ids: Vec<(String, f64)> = (*redis)
-            .zrangebyscore_withscores(
+        let process_ids: Vec<String> = (*redis)
+            .zrangebyscore(
                 &self.keys.processes,
                 chrono::Utc::now().timestamp() - RESURRECT_THRESHOLD_SECS,
                 chrono::Utc::now().timestamp(),
             )
             .await?;
 
-        let mut processes_with_ports = vec![];
+        let mut processes = vec![];
 
-        for (process, last_heartbeat) in process_ids {
-            let parts: Vec<&str> = process.rsplitn(2, '-').collect();
-            let mut parts_iter = parts.into_iter();
-            let pid = match parts_iter.next().map(|pid| pid.parse::<u32>().ok()) {
-                Some(Some(pid)) => pid,
-                _ => continue,
-            };
-            let hostname = match parts_iter.next() {
-                Some(hostname) => hostname.to_string(),
-                None => continue,
-            };
-            processes_with_ports.push(Process {
-                hostname,
-                pid,
-                last_heartbeat: last_heartbeat as i64,
-            });
+        for process_id in process_ids {
+            if let Some(process) = self.get_process_data(&process_id).await? {
+                processes.push(process);
+            }
         }
 
-        Ok(processes_with_ports)
+        Ok(processes)
     }
 
     pub async fn resurrect_loop(&self, cancel_token: CancellationToken) -> Result<(), OxanusError> {
@@ -747,7 +760,7 @@ impl StorageInternal {
         &self,
         redis: &mut deadpool_redis::Connection,
     ) -> Result<(), OxanusError> {
-        let processes: Vec<String> = (*redis)
+        let process_ids: Vec<String> = (*redis)
             .zrangebyscore(
                 &self.keys.processes,
                 0,
@@ -755,10 +768,11 @@ impl StorageInternal {
             )
             .await?;
 
-        for process_id in processes {
+        for process_id in process_ids {
             tracing::info!("Dead process detected: {}", process_id);
 
             let processing_queue = self.processing_queue(&process_id);
+            let mut resurrected_count = 0;
 
             loop {
                 let job_ids: Vec<String> = (*redis)
@@ -769,8 +783,10 @@ impl StorageInternal {
                     break;
                 }
 
+                resurrected_count += job_ids.len();
+
                 for job_id in job_ids {
-                    match self.get(&job_id).await? {
+                    match self.get_job(&job_id).await? {
                         Some(envelope) => {
                             tracing::info!(
                                 job_id = job_id,
@@ -786,9 +802,32 @@ impl StorageInternal {
                 }
             }
 
-            let _: () = (*redis).zrem(&self.keys.processes, &process_id).await?;
+            let _: () = redis::pipe()
+                .zrem(&self.keys.processes, &process_id)
+                .hdel(&self.keys.processes_data, &process_id)
+                .query_async(redis)
+                .await?;
+
+            if resurrected_count > 0 {
+                tracing::info!(
+                    "Resurrected process: {} ({} jobs)",
+                    process_id,
+                    resurrected_count
+                );
+            }
         }
 
+        Ok(())
+    }
+
+    pub async fn self_cleanup(&self) -> Result<(), OxanusError> {
+        let mut redis = self.connection().await?;
+        let process = self.current_process();
+        let _: () = redis::pipe()
+            .zrem(&self.keys.processes, process.id())
+            .hdel(&self.keys.processes_data, process.id())
+            .query_async(&mut redis)
+            .await?;
         Ok(())
     }
 
@@ -797,19 +836,28 @@ impl StorageInternal {
     }
 
     fn current_processing_queue(&self) -> String {
-        format!(
-            "{}:{}",
-            self.keys.processing_queue_prefix,
-            self.current_process_id()
-        )
+        self.processing_queue(&self.current_process().id())
     }
 
-    fn current_process_id(&self) -> String {
-        let hostname = gethostname::gethostname()
-            .into_string()
-            .unwrap_or_else(|_| "unknown".to_string());
+    #[cfg(test)]
+    async fn currently_processing_job_ids(&self) -> Result<Vec<String>, OxanusError> {
+        let mut redis = self.connection().await?;
+        let job_ids: Vec<String> = (*redis)
+            .lrange(&self.current_processing_queue(), 0, 0)
+            .await?;
+        Ok(job_ids)
+    }
+
+    fn current_process(&self) -> Process {
+        let hostname = gethostname::gethostname().to_string_lossy().to_string();
         let pid = std::process::id();
-        format!("{hostname}-{pid}")
+        let memory = memory_stats::memory_stats();
+        Process {
+            hostname,
+            pid,
+            heartbeat_at: chrono::Utc::now().timestamp(),
+            memory_usage: memory.map(|m| m.physical_mem),
+        }
     }
 
     fn namespace_queue(&self, queue: &str) -> String {
@@ -856,6 +904,46 @@ mod tests {
         let latency = storage.latency_ms(&queue).await?;
 
         assert!((latency - actual_latency as f64).abs() < 50.0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_resurrect() -> TestResult {
+        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()));
+        let queue = random_string();
+        let envelope = JobEnvelope::new(queue.clone(), TestWorker {})?;
+
+        storage.enqueue(envelope.clone()).await?;
+
+        assert_eq!(storage.enqueued_count(&queue).await?, 1);
+        assert!(storage.currently_processing_job_ids().await?.is_empty());
+
+        let job_id = storage.dequeue(&queue).await?;
+
+        assert_eq!(job_id, Some(envelope.id));
+
+        assert_eq!(storage.enqueued_count(&queue).await?, 0);
+        assert_eq!(
+            storage.currently_processing_job_ids().await?,
+            vec![job_id.unwrap()]
+        );
+
+        let mut redis = storage.connection().await?;
+
+        // fake ping in the past
+        let _: () = redis
+            .zadd(
+                &storage.keys.processes,
+                storage.current_process().id(),
+                chrono::Utc::now().timestamp() - RESURRECT_THRESHOLD_SECS - 1,
+            )
+            .await?;
+
+        storage.resurrect(&mut redis).await?;
+
+        assert_eq!(storage.enqueued_count(&queue).await?, 1);
+        assert!(storage.currently_processing_job_ids().await?.is_empty());
 
         Ok(())
     }

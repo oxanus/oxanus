@@ -6,7 +6,7 @@ use crate::{OxanusError, Worker};
 
 pub type JobId = String;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct JobEnvelope {
     pub id: JobId,
     pub job: Job,
@@ -14,7 +14,7 @@ pub struct JobEnvelope {
     pub meta: JobMeta,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Job {
     pub name: String,
     pub args: serde_json::Value,

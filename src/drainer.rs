@@ -67,7 +67,7 @@ where
     let envelope: JobEnvelope = config
         .storage
         .internal
-        .get(&job_id)
+        .get_job(&job_id)
         .await?
         .ok_or(OxanusError::GenericError("Job not found".to_string()))?;
 

@@ -83,11 +83,11 @@ where
 {
     tracing::trace!("Processing job: {:?}", job_event);
 
-    let envelope: JobEnvelope = match config.storage.internal.get(&job_event.job_id).await {
+    let envelope: JobEnvelope = match config.storage.internal.get_job(&job_event.job_id).await {
         Ok(Some(envelope)) => envelope,
         Ok(None) => {
             tracing::warn!("Job {} not found", job_event.job_id);
-            if let Err(e) = config.storage.internal.delete(&job_event.job_id).await {
+            if let Err(e) = config.storage.internal.delete_job(&job_event.job_id).await {
                 #[cfg(feature = "sentry")]
                 sentry_core::capture_error(&e);
                 tracing::error!("Failed to delete job: {}", e);

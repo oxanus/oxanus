@@ -65,9 +65,9 @@ where
     let mut coordinator_joinset = JoinSet::new();
     let stats = Arc::new(Mutex::new(Stats::default()));
 
+    joinset.spawn(ping_loop(Arc::clone(&config)));
     joinset.spawn(retry_loop(Arc::clone(&config)));
     joinset.spawn(schedule_loop(Arc::clone(&config)));
-    joinset.spawn(ping_loop(Arc::clone(&config)));
     joinset.spawn(resurrect_loop(Arc::clone(&config)));
     joinset.spawn(cron_loop(Arc::clone(&config)));
 
@@ -117,6 +117,7 @@ where
 
     match result {
         Ok(()) => {
+            config.storage.internal.self_cleanup().await?;
             tracing::info!("Gracefully shut down");
             Ok(stats)
         }
