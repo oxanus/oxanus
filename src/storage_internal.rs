@@ -44,7 +44,14 @@ pub struct Stats {
     pub scheduled_count: usize,
     pub retries_count: usize,
     pub processes: Vec<Process>,
+    pub processing: Vec<StatsProcessing>,
     pub queues: Vec<QueueStats>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct StatsProcessing {
+    pub process_id: String,
+    pub job_envelope: JobEnvelope,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -595,12 +602,31 @@ impl StorageInternal {
 
         values.sort_by(|a, b| a.key.cmp(&b.key));
 
+        let processes = self.processes().await?;
+
+        let mut processing = vec![];
+
+        for process in processes.iter() {
+            let processing_queue = self.processing_queue(&process.id());
+            let job_ids: Vec<String> = (*redis).lrange(&processing_queue, 0, -1).await?;
+
+            for job_id in job_ids {
+                if let Some(envelope) = self.get_job(&job_id).await? {
+                    processing.push(StatsProcessing {
+                        process_id: process.id(),
+                        job_envelope: envelope,
+                    });
+                }
+            }
+        }
+
         Ok(Stats {
             jobs: self.jobs_count().await?,
             dead_count: self.dead_count().await?,
             scheduled_count: self.scheduled_count().await?,
             retries_count: self.retries_count().await?,
-            processes: self.processes().await?,
+            processing,
+            processes,
             queues: values,
         })
     }
