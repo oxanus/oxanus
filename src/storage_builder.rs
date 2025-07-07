@@ -43,9 +43,9 @@ impl StorageBuilder {
         cfg.pool = Some(deadpool_redis::PoolConfig {
             max_size: self.max_pool_size.unwrap_or(50),
             timeouts: deadpool_redis::Timeouts {
-                wait: Some(std::time::Duration::from_millis(100)),
-                create: Some(std::time::Duration::from_millis(100)),
-                recycle: Some(std::time::Duration::from_millis(100)),
+                wait: Some(std::time::Duration::from_millis(300)),
+                create: Some(std::time::Duration::from_millis(300)),
+                recycle: Some(std::time::Duration::from_millis(300)),
             },
             queue_mode: Default::default(),
         });
