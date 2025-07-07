@@ -79,7 +79,6 @@ pub struct Process {
     pub hostname: String,
     pub pid: u32,
     pub heartbeat_at: i64,
-    pub memory_usage: Option<usize>,
 }
 
 impl Process {
@@ -879,12 +878,10 @@ impl StorageInternal {
     fn current_process(&self) -> Process {
         let hostname = gethostname::gethostname().to_string_lossy().to_string();
         let pid = std::process::id();
-        let memory = memory_stats::memory_stats();
         Process {
             hostname,
             pid,
             heartbeat_at: chrono::Utc::now().timestamp(),
-            memory_usage: memory.map(|m| m.physical_mem),
         }
     }
 
@@ -934,7 +931,6 @@ mod tests {
         );
         assert_eq!(process.pid, std::process::id());
         assert!(process.heartbeat_at > chrono::Utc::now().timestamp() - 3);
-        assert!(process.memory_usage.is_some());
 
         Ok(())
     }
