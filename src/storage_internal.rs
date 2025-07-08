@@ -751,6 +751,8 @@ impl StorageInternal {
 
         let mut redis = self.connection().await?;
 
+        self.ping(&mut redis).await?;
+
         loop {
             if cancel_token.is_cancelled() {
                 return Ok(());
@@ -813,15 +815,7 @@ impl StorageInternal {
         &self,
         redis: &mut deadpool_redis::Connection,
     ) -> Result<(), OxanusError> {
-        let process_ids: Vec<String> = (*redis)
-            .zrangebyscore(
-                &self.keys.processes,
-                0,
-                chrono::Utc::now().timestamp() - RESURRECT_THRESHOLD_SECS,
-            )
-            .await?;
-
-        for process_id in process_ids {
+        for process_id in self.dead_process_ids(redis).await? {
             tracing::info!("Dead process detected: {}", process_id);
 
             let processing_queue = self.processing_queue(&process_id);
@@ -918,6 +912,41 @@ impl StorageInternal {
             format!("{}:{}", self.keys.queue_prefix, queue)
         }
     }
+
+    async fn dead_process_ids(
+        &self,
+        redis: &mut deadpool_redis::Connection,
+    ) -> Result<Vec<String>, OxanusError> {
+        let process_ids: Vec<(String, f64)> = (*redis)
+            .zrange_withscores(&self.keys.processes, 0, -1)
+            .await?;
+
+        let all_process_ids: Vec<String> = process_ids.iter().map(|(id, _)| id.clone()).collect();
+        let mut dead_process_ids: Vec<String> = process_ids
+            .iter()
+            .filter(|(_, score)| {
+                *score < (chrono::Utc::now().timestamp() - RESURRECT_THRESHOLD_SECS) as f64
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        let all_processing_queues: Vec<String> = redis
+            .keys(&format!("{}:*", self.keys.processing_queue_prefix))
+            .await?;
+
+        for processing_queue in all_processing_queues {
+            let process_id = match processing_queue.rsplit(':').into_iter().next() {
+                Some(process_id) => process_id.to_string(),
+                None => continue,
+            };
+
+            if !all_process_ids.contains(&process_id) {
+                dead_process_ids.push(process_id);
+            }
+        }
+
+        Ok(dead_process_ids)
+    }
 }
 
 #[cfg(test)]
@@ -1010,6 +1039,37 @@ mod tests {
                 chrono::Utc::now().timestamp() - RESURRECT_THRESHOLD_SECS - 1,
             )
             .await?;
+
+        storage.resurrect(&mut redis).await?;
+
+        assert_eq!(storage.enqueued_count(&queue).await?, 1);
+        assert!(storage.currently_processing_job_ids().await?.is_empty());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_resurrect_when_process_is_missing() -> TestResult {
+        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()));
+        let queue = random_string();
+        let envelope = JobEnvelope::new(queue.clone(), TestWorker {})?;
+
+        storage.enqueue(envelope.clone()).await?;
+
+        assert_eq!(storage.enqueued_count(&queue).await?, 1);
+        assert!(storage.currently_processing_job_ids().await?.is_empty());
+
+        let job_id = storage.dequeue(&queue).await?;
+
+        assert_eq!(job_id, Some(envelope.id));
+
+        assert_eq!(storage.enqueued_count(&queue).await?, 0);
+        assert_eq!(
+            storage.currently_processing_job_ids().await?,
+            vec![job_id.unwrap()]
+        );
+
+        let mut redis = storage.connection().await?;
 
         storage.resurrect(&mut redis).await?;
 

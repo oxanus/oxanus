@@ -1,6 +1,6 @@
 [package]
 name = "oxanus"
-version = "0.3.31"
+version = "0.3.32"
 edition = "2024"
 license = "MIT"
 description = "A simple & fast job queue system."
@@ -21,7 +21,7 @@ sentry = ["sentry-core"]
 async-trait = "0.1"
 chrono = { version = "^0.4", features = ["serde"] }
 cron = "^0.15"
-deadpool-redis = "^0.21"
+deadpool-redis = "^0.22"
 futures = { version = "^0.3" }
 gethostname = "^1.0"
 sentry-core = { version = "^0.41", optional = true }
