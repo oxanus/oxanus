@@ -931,11 +931,11 @@ impl StorageInternal {
             .collect();
 
         let all_processing_queues: Vec<String> = redis
-            .keys(&format!("{}:*", self.keys.processing_queue_prefix))
+            .keys(format!("{}:*", self.keys.processing_queue_prefix))
             .await?;
 
         for processing_queue in all_processing_queues {
-            let process_id = match processing_queue.rsplit(':').into_iter().next() {
+            let process_id = match processing_queue.rsplit(':').next() {
                 Some(process_id) => process_id.to_string(),
                 None => continue,
             };
