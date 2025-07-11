@@ -39,13 +39,19 @@ struct StorageKeys {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Stats {
-    pub jobs: usize,
-    pub dead_count: usize,
-    pub scheduled_count: usize,
-    pub retries_count: usize,
+    pub global: StatsGlobal,
     pub processes: Vec<Process>,
     pub processing: Vec<StatsProcessing>,
     pub queues: Vec<QueueStats>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct StatsGlobal {
+    pub jobs: usize,
+    pub processed: i64,
+    pub dead: usize,
+    pub scheduled: usize,
+    pub retries: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -577,6 +583,8 @@ impl StorageInternal {
 
         let mut values: Vec<QueueStats> = map.into_values().collect();
 
+        let mut processed_count_total = 0;
+
         for value in values.iter_mut() {
             if value.queues.is_empty() {
                 value.enqueued = self.enqueued_count(&value.key).await?;
@@ -596,6 +604,8 @@ impl StorageInternal {
                     value.enqueued += enqueued;
                 }
             }
+
+            processed_count_total += value.processed;
 
             value.queues.sort_by(|a, b| a.suffix.cmp(&b.suffix));
         }
@@ -621,10 +631,13 @@ impl StorageInternal {
         }
 
         Ok(Stats {
-            jobs: self.jobs_count().await?,
-            dead_count: self.dead_count().await?,
-            scheduled_count: self.scheduled_count().await?,
-            retries_count: self.retries_count().await?,
+            global: StatsGlobal {
+                jobs: self.jobs_count().await?,
+                processed: processed_count_total,
+                dead: self.dead_count().await?,
+                scheduled: self.scheduled_count().await?,
+                retries: self.retries_count().await?,
+            },
             processing,
             processes,
             queues: values,
