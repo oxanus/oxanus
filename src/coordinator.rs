@@ -119,12 +119,10 @@ where
         }
     };
 
-    let result_tx = result_tx.clone();
-    let queue_key = envelope.queue.clone();
-    let result = executor::run(config, job, envelope, ctx.clone()).await?;
+    let result = executor::run(config, job, &envelope, ctx.clone()).await?;
     drop(job_event.permit);
 
-    process_result(result_tx, result, queue_key).await;
+    process_result(result_tx, result, envelope).await;
 
     Ok(())
 }
@@ -132,7 +130,7 @@ where
 async fn process_result<ET>(
     result_tx: mpsc::Sender<JobResult>,
     result: Result<(), ExecutionError<ET>>,
-    queue_key: String,
+    envelope: JobEnvelope,
 ) where
     ET: std::error::Error + Send + Sync + 'static,
 {
@@ -144,7 +142,7 @@ async fn process_result<ET>(
         },
     };
 
-    result_tx.send(JobResult { queue_key, kind }).await.ok();
+    result_tx.send(JobResult { envelope, kind }).await.ok();
 }
 
 async fn run_queue_watcher<DT, ET>(

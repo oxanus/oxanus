@@ -83,6 +83,7 @@ mod dispatcher;
 mod drainer;
 mod error;
 mod executor;
+mod firehose;
 mod job_envelope;
 mod launcher;
 mod queue;

@@ -1,7 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 
-use crate::{OxanusError, config::Config};
+use crate::{OxanusError, config::Config, job_envelope::JobEnvelope};
 
 #[derive(Default, Debug)]
 pub struct Stats {
@@ -11,10 +12,14 @@ pub struct Stats {
     pub failed: u64,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct JobResult {
-    pub queue_key: String,
     pub kind: JobResultKind,
+    pub envelope: JobEnvelope,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum JobResultKind {
     Success,
     Panicked,
@@ -69,11 +74,7 @@ where
         stats.processed
     };
 
-    config
-        .storage
-        .internal
-        .update_stats(&result.queue_key, result.kind)
-        .await?;
+    config.storage.internal.update_stats(result).await?;
 
     if let Some(exit_when_processed) = config.exit_when_processed {
         if processed >= exit_when_processed {

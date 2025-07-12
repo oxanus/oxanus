@@ -80,6 +80,8 @@ where
         ));
     }
 
+    config.storage.internal.start().await?;
+
     let mut result = Ok(());
 
     tokio::select! {
@@ -111,13 +113,14 @@ where
 
     coordinator_joinset.join_all().await;
 
+    config.storage.internal.self_cleanup().await?;
+
     let stats = Arc::try_unwrap(stats)
         .expect("Failed to unwrap Arc - there are still references to stats")
         .into_inner();
 
     match result {
         Ok(()) => {
-            config.storage.internal.self_cleanup().await?;
             tracing::info!("Gracefully shut down");
             Ok(stats)
         }

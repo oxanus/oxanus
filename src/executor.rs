@@ -21,7 +21,7 @@ pub(crate) enum ExecutionError<ET> {
 pub async fn run<DT, ET>(
     config: Arc<Config<DT, ET>>,
     worker: BoxedWorker<DT, ET>,
-    envelope: JobEnvelope,
+    envelope: &JobEnvelope,
     ctx: ContextValue<DT>,
 ) -> Result<Result<(), ExecutionError<ET>>, OxanusError>
 where
@@ -46,7 +46,7 @@ where
     };
 
     // Process the job and handle panics
-    let result = match AssertUnwindSafe(process(&worker, full_ctx, &envelope))
+    let result = match AssertUnwindSafe(process(&worker, full_ctx, envelope))
         .catch_unwind()
         .await
     {
@@ -68,7 +68,7 @@ where
     tracing::info!(
         job_id = envelope.id,
         queue = envelope.queue,
-        job = &envelope.job.name,
+        job = envelope.job.name,
         success = !is_err,
         duration = duration.as_millis(),
         retries = envelope.meta.retries,
@@ -82,7 +82,7 @@ where
         ExecutionResult::NotPanic(result) => {
             match &result {
                 Ok(()) => {
-                    if let Err(e) = config.storage.internal.finish_with_success(&envelope).await {
+                    if let Err(e) = config.storage.internal.finish_with_success(envelope).await {
                         tracing::error!("Failed to finish job: {}", e);
                     }
                 }
@@ -93,7 +93,7 @@ where
                     tracing::error!(
                         job_id = envelope.id,
                         queue = envelope.queue,
-                        worker = &envelope.job.name,
+                        worker = envelope.job.name,
                         "Job failed"
                     );
 
@@ -141,7 +141,7 @@ where
 async fn handle_err<DT, ET>(
     config: Arc<Config<DT, ET>>,
     err_msg: &str,
-    envelope: JobEnvelope,
+    envelope: &JobEnvelope,
     retry_delay: u64,
     max_retries: u32,
 ) where
@@ -149,13 +149,13 @@ async fn handle_err<DT, ET>(
     ET: std::error::Error + Send + Sync + 'static,
 {
     if envelope.meta.retries < max_retries {
-        if let Err(e) = config.storage.internal.finish_with_failure(&envelope).await {
+        if let Err(e) = config.storage.internal.finish_with_failure(envelope).await {
             tracing::error!("Failed to finish job: {}", e);
         }
         if let Err(e) = config
             .storage
             .internal
-            .retry_in(envelope.id, retry_delay)
+            .retry_in(envelope.id.clone(), retry_delay)
             .await
         {
             tracing::error!("Failed to retry job: {}", e);
@@ -167,7 +167,7 @@ async fn handle_err<DT, ET>(
             max_retries,
             err_msg
         );
-        if let Err(e) = config.storage.internal.kill(&envelope).await {
+        if let Err(e) = config.storage.internal.kill(envelope).await {
             tracing::error!("Failed to kill job: {}", e);
         }
     }

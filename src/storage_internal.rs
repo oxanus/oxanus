@@ -9,8 +9,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     OxanusError,
+    firehose::{Firehose, FirehouseEvent},
     job_envelope::{JobEnvelope, JobId},
-    result_collector::JobResultKind,
+    result_collector::{JobResult, JobResultKind},
     worker_registry::CronJob,
 };
 
@@ -20,6 +21,7 @@ const RESURRECT_THRESHOLD_SECS: i64 = 5;
 #[derive(Clone)]
 pub(crate) struct StorageInternal {
     pool: deadpool_redis::Pool,
+    firehose: Firehose,
     keys: StorageKeys,
 }
 
@@ -35,6 +37,7 @@ struct StorageKeys {
     processes: String,
     processes_data: String,
     stats: String,
+    firehose: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -119,6 +122,7 @@ impl StorageKeys {
             processes: format!("{namespace}:processes"),
             processes_data: format!("{namespace}:processes_data"),
             stats: format!("{namespace}:stats"),
+            firehose: format!("{namespace}:firehose"),
             namespace,
         }
     }
@@ -126,9 +130,12 @@ impl StorageKeys {
 
 impl StorageInternal {
     pub fn new(pool: deadpool_redis::Pool, namespace: Option<String>) -> Self {
+        let keys = StorageKeys::new(namespace.unwrap_or_default());
+        let firehose = Firehose::new(pool.clone(), keys.firehose.clone());
         Self {
             pool,
-            keys: StorageKeys::new(namespace.unwrap_or_default()),
+            keys,
+            firehose,
         }
     }
 
@@ -187,6 +194,10 @@ impl StorageInternal {
             .query_async(&mut *redis)
             .await?;
 
+        self.firehose
+            .event(FirehouseEvent::JobEnqueued(envelope.clone()))
+            .await?;
+
         Ok(envelope.id)
     }
 
@@ -242,6 +253,9 @@ impl StorageInternal {
             // )
             .zadd(&self.keys.schedule, &envelope.id, time.timestamp_micros())
             .query_async(&mut redis)
+            .await?;
+
+        self.firehouse_event(FirehouseEvent::JobEnqueued(envelope.clone()))
             .await?;
 
         Ok(envelope.id)
@@ -644,24 +658,25 @@ impl StorageInternal {
         })
     }
 
-    pub async fn update_stats(
-        &self,
-        queue_key: &str,
-        kind: JobResultKind,
-    ) -> Result<(), OxanusError> {
+    pub async fn update_stats(&self, result: JobResult) -> Result<(), OxanusError> {
         let mut redis = self.connection().await?;
+        let queue = result.envelope.queue.clone();
 
-        let processed_key = format!("{queue_key}:processed");
-        let status_key = match kind {
-            JobResultKind::Success => format!("{queue_key}:succeeded"),
-            JobResultKind::Panicked => format!("{queue_key}:panicked"),
-            JobResultKind::Failed => format!("{queue_key}:failed"),
+        let processed_key = format!("{queue}:processed");
+        let status_key = match result.kind {
+            JobResultKind::Success => format!("{queue}:succeeded"),
+            JobResultKind::Panicked => format!("{queue}:panicked"),
+            JobResultKind::Failed => format!("{queue}:failed"),
         };
 
         let _: () = redis::pipe()
             .hincr(&self.keys.stats, processed_key, 1)
             .hincr(&self.keys.stats, status_key, 1)
             .query_async(&mut redis)
+            .await?;
+
+        self.firehose
+            .event(FirehouseEvent::JobFinished(result))
             .await?;
 
         Ok(())
@@ -757,6 +772,25 @@ impl StorageInternal {
         }
 
         Ok(processes)
+    }
+
+    pub async fn firehouse_event(&self, event: FirehouseEvent) -> Result<(), OxanusError> {
+        let internal = self.clone();
+
+        tokio::spawn(async move {
+            internal.firehouse_event_sync(event).await.ok();
+        });
+
+        Ok(())
+    }
+
+    async fn firehouse_event_sync(&self, event: FirehouseEvent) -> Result<(), OxanusError> {
+        let mut redis = self.connection().await?;
+        let _: () = redis::pipe()
+            .publish(&self.keys.firehose, serde_json::to_string(&event)?)
+            .query_async(&mut redis)
+            .await?;
+        Ok(())
     }
 
     pub async fn resurrect_loop(&self, cancel_token: CancellationToken) -> Result<(), OxanusError> {
@@ -880,6 +914,12 @@ impl StorageInternal {
         Ok(())
     }
 
+    pub async fn start(&self) -> Result<(), OxanusError> {
+        self.firehose
+            .event(FirehouseEvent::ProcessStarted(self.current_process()))
+            .await
+    }
+
     pub async fn self_cleanup(&self) -> Result<(), OxanusError> {
         let mut redis = self.connection().await?;
         let process = self.current_process();
@@ -888,6 +928,11 @@ impl StorageInternal {
             .hdel(&self.keys.processes_data, process.id())
             .query_async(&mut redis)
             .await?;
+
+        self.firehose
+            .event_w_redis_sync(&mut redis, FirehouseEvent::ProcessExited(process))
+            .await?;
+
         Ok(())
     }
 
