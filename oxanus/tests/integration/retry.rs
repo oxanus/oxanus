@@ -29,7 +29,7 @@ impl oxanus::Worker for WorkerRedisSetWithRetry {
             return Ok(());
         }
         let _: () = redis.set_ex(&self.key, self.value_first.clone(), 3).await?;
-        Err(WorkerError::GenericError("Key not set".to_string()))
+        Err(WorkerError::Generic("Key not set".to_string()))
     }
 
     fn retry_delay(&self, _retries: u32) -> u64 {

@@ -142,11 +142,8 @@ fn redis_pool() -> deadpool_redis::Pool {
         max_size: 512,
         ..Default::default()
     });
-    let pool = cfg
-        .create_pool(Some(deadpool_redis::Runtime::Tokio1))
-        .expect("Failed to create Redis pool");
-
-    pool
+    cfg.create_pool(Some(deadpool_redis::Runtime::Tokio1))
+        .expect("Failed to create Redis pool")
 }
 
 fn build_config(concurrency: usize) -> oxanus::Config<WorkerState, ServiceError> {

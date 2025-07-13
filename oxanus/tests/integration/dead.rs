@@ -15,7 +15,7 @@ impl oxanus::Worker for WorkerFail {
         &self,
         oxanus::Context { .. }: &oxanus::Context<()>,
     ) -> Result<(), WorkerError> {
-        Err(WorkerError::GenericError(
+        Err(WorkerError::Generic(
             "I have nothing to live for...".to_string(),
         ))
     }

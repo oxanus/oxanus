@@ -1,0 +1,54 @@
+[package]
+name = "oxanus-api"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "A simple & fast job queue system."
+repository = "https://github.com/oxanus/oxanus"
+keywords = ["job", "scheduler", "worker", "cron"]
+categories = ["asynchronous", "web-programming", "concurrency"]
+exclude = [".*", "logo.jpg"]
+
+[lib]
+doctest = false
+test = true
+
+[features]
+default = []
+
+[dependencies]
+oxanus = { path = "../oxanus" }
+axum = "0.8"
+serde = { version = "^1.0", features = ["derive"] }
+serde_json = { version = "^1.0", features = ["preserve_order"] }
+tokio = { version = "^1.46", features = ["full"] }
+utoipa = { version = "^5.3", features = [
+  "axum_extras",
+  # "chrono",
+  "indexmap",
+  "preserve_order",
+  # "uuid",
+] }
+
+
+# async-trait = "0.1"
+# chrono = { version = "^0.4", features = ["serde"] }
+# cron = "^0.15"
+# deadpool-redis = "^0.22"
+# futures = { version = "^0.3" }
+# gethostname = "^1.0"
+# sentry-core = { version = "^0.41", optional = true }
+# serde = { version = "^1.0", features = ["derive"] }
+# serde_json = { version = "^1.0", features = ["preserve_order"] }
+# thiserror = "^2.0"
+# tokio = { version = "^1.46", features = ["full"] }
+# tokio-util = { version = "^0.7" }
+# tracing = { version = "^0.1", features = ["log"] }
+# uuid = { version = "^1.17", features = ["serde", "v4"] }
+
+[dev-dependencies]
+# divan = "^0.1"
+# dotenvy = "^0.15"
+# rand = "^0.9"
+# testresult = "^0.4"
+# tracing-subscriber = { version = "^0.3", features = ["env-filter"] }

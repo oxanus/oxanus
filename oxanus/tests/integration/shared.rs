@@ -6,11 +6,11 @@ use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 #[derive(Debug, thiserror::Error)]
 pub enum WorkerError {
     #[error("Generic error: {0}")]
-    GenericError(String),
+    Generic(String),
     #[error("Redis error: {0}")]
-    RedisError(#[from] deadpool_redis::redis::RedisError),
+    Redis(#[from] deadpool_redis::redis::RedisError),
     #[error("Redis error: {0}")]
-    PoolError(#[from] deadpool_redis::PoolError),
+    Pool(#[from] deadpool_redis::PoolError),
 }
 
 #[derive(Clone)]
@@ -85,11 +85,8 @@ pub fn redis_pool() -> deadpool_redis::Pool {
         },
         ..Default::default()
     });
-    let pool = cfg
-        .create_pool(Some(deadpool_redis::Runtime::Tokio1))
-        .expect("Failed to create Redis pool");
-
-    pool
+    cfg.create_pool(Some(deadpool_redis::Runtime::Tokio1))
+        .expect("Failed to create Redis pool")
 }
 
 pub fn random_string() -> String {

@@ -948,7 +948,7 @@ impl StorageInternal {
     async fn currently_processing_job_ids(&self) -> Result<Vec<String>, OxanusError> {
         let mut redis = self.connection().await?;
         let job_ids: Vec<String> = (*redis)
-            .lrange(&self.current_processing_queue(), 0, 0)
+            .lrange(self.current_processing_queue(), 0, 0)
             .await?;
         Ok(job_ids)
     }

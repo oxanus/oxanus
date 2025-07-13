@@ -36,7 +36,7 @@ jobs:
         run: cargo nextest run --all-features --no-fail-fast
 
       - name: Lint
-        run: cargo clippy --all-features
+        run: cargo clippy --all-features --workspace --all-targets -- -D warnings
 
       - name: Benchmark
         run: cargo bench
