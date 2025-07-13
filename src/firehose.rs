@@ -14,7 +14,7 @@ pub struct Firehose {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FirehouseEvent {
-    JobFinished(JobResult),
+    JobExecuted(JobResult),
     JobEnqueued(JobEnvelope),
     ProcessStarted(Process),
     ProcessExited(Process),

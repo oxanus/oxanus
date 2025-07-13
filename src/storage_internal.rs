@@ -676,7 +676,7 @@ impl StorageInternal {
             .await?;
 
         self.firehose
-            .event(FirehouseEvent::JobFinished(result))
+            .event(FirehouseEvent::JobExecuted(result))
             .await?;
 
         Ok(())
