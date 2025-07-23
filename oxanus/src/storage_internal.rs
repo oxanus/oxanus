@@ -51,6 +51,7 @@ pub struct Stats {
 #[derive(Debug, Clone, Serialize)]
 pub struct StatsGlobal {
     pub jobs: usize,
+    pub enqueued: usize,
     pub processed: i64,
     pub dead: usize,
     pub scheduled: usize,
@@ -598,6 +599,7 @@ impl StorageInternal {
         let mut values: Vec<QueueStats> = map.into_values().collect();
 
         let mut processed_count_total = 0;
+        let mut enqueued_count_total = 0;
 
         for value in values.iter_mut() {
             if value.queues.is_empty() {
@@ -620,6 +622,7 @@ impl StorageInternal {
             }
 
             processed_count_total += value.processed;
+            enqueued_count_total += value.enqueued;
 
             value.queues.sort_by(|a, b| a.suffix.cmp(&b.suffix));
         }
@@ -647,6 +650,7 @@ impl StorageInternal {
         Ok(Stats {
             global: StatsGlobal {
                 jobs: self.jobs_count().await?,
+                enqueued: enqueued_count_total,
                 processed: processed_count_total,
                 dead: self.dead_count().await?,
                 scheduled: self.scheduled_count().await?,
