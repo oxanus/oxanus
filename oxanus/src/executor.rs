@@ -114,25 +114,29 @@ where
     }
 }
 
-#[tracing::instrument(skip_all, name = "job", fields(
+#[cfg_attr(feature = "tracing-instrument", tracing::instrument(skip_all, name = "job", fields(
     job_id = envelope.id,
     queue = envelope.queue,
     worker = envelope.job.name,
     args = %envelope.job.args,
     success,
-))]
+)))]
 async fn process<DT, ET>(
     worker: &BoxedWorker<DT, ET>,
     full_ctx: Context<DT>,
+    #[cfg_attr(not(feature = "tracing-instrument"), allow(unused_variables))]
     envelope: &JobEnvelope,
 ) -> Result<(), ET>
 where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
+    #[cfg(feature = "tracing-instrument")]
     let span = tracing::Span::current();
+    
     let result = worker.process(&full_ctx).await;
 
+    #[cfg(feature = "tracing-instrument")]
     span.record("success", result.is_ok());
 
     result

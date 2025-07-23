@@ -14,8 +14,9 @@ doctest = false
 test = true
 
 [features]
-default = []
+default = ["sentry", "tracing-instrument"]
 sentry = ["sentry-core"]
+tracing-instrument = []
 
 [dependencies]
 async-trait = "0.1"
