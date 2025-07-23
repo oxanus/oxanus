@@ -9,6 +9,7 @@ use crate::{
 pub struct Firehose {
     key: String,
     pool: deadpool_redis::Pool,
+    enabled: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -21,11 +22,15 @@ pub enum FirehouseEvent {
 }
 
 impl Firehose {
-    pub fn new(pool: deadpool_redis::Pool, key: String) -> Self {
-        Self { pool, key }
+    pub fn new(pool: deadpool_redis::Pool, key: String, enabled: bool) -> Self {
+        Self { pool, key, enabled }
     }
 
     pub async fn event(&self, event: FirehouseEvent) -> Result<(), OxanusError> {
+        if !self.enabled {
+            return Ok(());
+        }
+
         let firehose = self.clone();
         tokio::spawn(async move {
             firehose.event_sync(event).await.ok();
@@ -43,6 +48,10 @@ impl Firehose {
         redis: &mut deadpool_redis::Connection,
         event: FirehouseEvent,
     ) -> Result<(), OxanusError> {
+        if !self.enabled {
+            return Ok(());
+        }
+
         let event_json = serde_json::to_string(&event)?;
         let _: () = redis.publish(self.key.clone(), event_json).await?;
         Ok(())

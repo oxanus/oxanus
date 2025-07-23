@@ -129,9 +129,9 @@ impl StorageKeys {
 }
 
 impl StorageInternal {
-    pub fn new(pool: deadpool_redis::Pool, namespace: Option<String>) -> Self {
+    pub fn new(pool: deadpool_redis::Pool, namespace: Option<String>, firehose: bool) -> Self {
         let keys = StorageKeys::new(namespace.unwrap_or_default());
-        let firehose = Firehose::new(pool.clone(), keys.firehose.clone());
+        let firehose = Firehose::new(pool.clone(), keys.firehose.clone(), firehose);
         Self {
             pool,
             keys,
@@ -1030,7 +1030,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_ping() -> TestResult {
-        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()));
+        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()), false);
         let mut redis = storage.connection().await?;
         storage.ping(&mut redis).await?;
 
@@ -1050,7 +1050,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_latency() -> TestResult {
-        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()));
+        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()), false);
         let queue = random_string();
 
         let mut envelope = JobEnvelope::new(queue.clone(), TestWorker {})?;
@@ -1068,7 +1068,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_resurrect() -> TestResult {
-        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()));
+        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()), false);
         let queue = random_string();
         let envelope = JobEnvelope::new(queue.clone(), TestWorker {})?;
 
@@ -1108,7 +1108,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_resurrect_when_process_is_missing() -> TestResult {
-        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()));
+        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()), false);
         let queue = random_string();
         let envelope = JobEnvelope::new(queue.clone(), TestWorker {})?;
 

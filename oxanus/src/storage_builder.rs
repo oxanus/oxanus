@@ -5,6 +5,7 @@ pub struct StorageBuilder {
     config: Option<deadpool_redis::Config>,
     max_pool_size: Option<usize>,
     pool: Option<deadpool_redis::Pool>,
+    firehose: Option<bool>,
 }
 
 impl Default for StorageBuilder {
@@ -20,11 +21,17 @@ impl StorageBuilder {
             config: None,
             max_pool_size: None,
             pool: None,
+            firehose: None,
         }
     }
 
     pub fn namespace(mut self, namespace: impl Into<String>) -> Self {
         self.namespace = Some(namespace.into());
+        self
+    }
+
+    pub fn firehose(mut self, firehose: bool) -> Self {
+        self.firehose = Some(firehose);
         self
     }
 
@@ -70,10 +77,12 @@ impl StorageBuilder {
 
     pub fn build(self) -> Result<Storage, OxanusError> {
         let internal = match (self.pool, self.config) {
-            (Some(pool), None) => StorageInternal::new(pool, self.namespace),
+            (Some(pool), None) => {
+                StorageInternal::new(pool, self.namespace, self.firehose.unwrap_or(false))
+            }
             (None, Some(config)) => {
                 let pool = config.create_pool(Some(deadpool_redis::Runtime::Tokio1))?;
-                StorageInternal::new(pool, self.namespace)
+                StorageInternal::new(pool, self.namespace, self.firehose.unwrap_or(false))
             }
             (None, None) => {
                 return Err(OxanusError::ConfigError(
