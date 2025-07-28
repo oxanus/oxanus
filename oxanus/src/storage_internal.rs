@@ -73,7 +73,7 @@ pub struct QueueStats {
     pub succeeded: i64,
     pub panicked: i64,
     pub failed: i64,
-    pub latency: f64,
+    pub latency_s: f64,
 
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub queues: Vec<DynamicQueueStats>,
@@ -88,7 +88,7 @@ pub struct DynamicQueueStats {
     pub succeeded: i64,
     pub panicked: i64,
     pub failed: i64,
-    pub latency: f64,
+    pub latency_s: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -460,6 +460,12 @@ impl StorageInternal {
         Ok(count as usize)
     }
 
+    pub async fn latency_s(&self, queue: &str) -> Result<f64, OxanusError> {
+        self.latency_micros(queue)
+            .await
+            .map(|latency| latency / 1_000_000.0)
+    }
+
     pub async fn latency_ms(&self, queue: &str) -> Result<f64, OxanusError> {
         self.latency_micros(queue)
             .await
@@ -551,7 +557,7 @@ impl StorageInternal {
                     succeeded: 0,
                     panicked: 0,
                     failed: 0,
-                    latency: 0.0,
+                    latency_s: 0.0,
                     queues: vec![],
                 });
 
@@ -568,7 +574,7 @@ impl StorageInternal {
                         succeeded: 0,
                         panicked: 0,
                         failed: 0,
-                        latency: 0.0,
+                        latency_s: 0.0,
                     });
                 }
 
@@ -604,18 +610,18 @@ impl StorageInternal {
         for value in values.iter_mut() {
             if value.queues.is_empty() {
                 value.enqueued = self.enqueued_count(&value.key).await?;
-                value.latency = self.latency_ms(&value.key).await?;
+                value.latency_s = self.latency_s(&value.key).await?;
             } else {
                 for dynamic_queue in value.queues.iter_mut() {
                     let dynamic_queue_key = format!("{}#{}", value.key, dynamic_queue.suffix);
                     let enqueued = self.enqueued_count(&dynamic_queue_key).await?;
-                    let latency = self.latency_ms(&dynamic_queue_key).await?;
+                    let latency_s = self.latency_s(&dynamic_queue_key).await?;
 
                     dynamic_queue.enqueued = enqueued;
-                    dynamic_queue.latency = latency;
+                    dynamic_queue.latency_s = latency_s;
 
-                    if value.latency < latency {
-                        value.latency = latency;
+                    if value.latency_s < latency_s {
+                        value.latency_s = latency_s;
                     }
                     value.enqueued += enqueued;
                 }
