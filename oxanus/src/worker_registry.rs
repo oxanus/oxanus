@@ -51,6 +51,8 @@ impl<DT, ET> WorkerRegistry<DT, ET> {
     where
         T: Worker<Context = DT, Error = ET> + serde::de::DeserializeOwned + 'static,
     {
+        self.validate_cron_worker::<T>();
+
         let name = type_name::<T>();
         let schedule = cron::Schedule::from_str(schedule)
             .unwrap_or_else(|_| panic!("{name}: Invalid cron schedule: {schedule}"));
@@ -63,6 +65,7 @@ impl<DT, ET> WorkerRegistry<DT, ET> {
                 queue_key,
             },
         );
+
         self
     }
 
@@ -80,6 +83,18 @@ impl<DT, ET> WorkerRegistry<DT, ET> {
             Err(e) => Err(OxanusError::JobFactoryError(format!(
                 "Failed to build job {name}: {e}"
             ))),
+        }
+    }
+
+    fn validate_cron_worker<T>(&self)
+    where
+        T: Worker<Context = DT, Error = ET> + serde::de::DeserializeOwned + 'static,
+    {
+        let name = type_name::<T>();
+        if serde_json::from_value::<T>(serde_json::json!({})).is_err() {
+            panic!(
+                "{name}: Cron worker must be deserializable from empty JSON (Don't define worker as `struct {name};`, use `struct {name} {{}}` instead)"
+            );
         }
     }
 }
