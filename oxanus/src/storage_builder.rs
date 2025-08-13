@@ -37,11 +37,10 @@ impl StorageBuilder {
 
     pub fn max_pool_size(mut self, max_pool_size: usize) -> Self {
         self.max_pool_size = Some(max_pool_size);
-        if let Some(cfg) = &mut self.config {
-            if let Some(pool_cfg) = &mut cfg.pool {
+        if let Some(cfg) = &mut self.config
+            && let Some(pool_cfg) = &mut cfg.pool {
                 pool_cfg.max_size = max_pool_size;
             }
-        }
         self
     }
 

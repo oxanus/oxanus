@@ -133,7 +133,7 @@ where
 {
     #[cfg(feature = "tracing-instrument")]
     let span = tracing::Span::current();
-    
+
     let result = worker.process(&full_ctx).await;
 
     #[cfg(feature = "tracing-instrument")]

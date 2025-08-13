@@ -76,11 +76,10 @@ where
 
     config.storage.internal.update_stats(result).await?;
 
-    if let Some(exit_when_processed) = config.exit_when_processed {
-        if processed >= exit_when_processed {
+    if let Some(exit_when_processed) = config.exit_when_processed
+        && processed >= exit_when_processed {
             config.cancel_token.cancel();
         }
-    }
 
     Ok(())
 }

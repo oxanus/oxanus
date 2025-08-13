@@ -846,12 +846,11 @@ impl StorageInternal {
                     continue;
                 }
 
-                if let Some(previous) = previous {
-                    if previous > now {
+                if let Some(previous) = previous
+                    && previous > now {
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                         continue;
                     }
-                }
 
                 break;
             }

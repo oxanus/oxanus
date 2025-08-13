@@ -77,12 +77,11 @@ async fn pop_queue_message_w_throttle(
 
         let state = throttler.state().await?;
 
-        if state.is_allowed {
-            if let Some(job_id) = storage.dequeue(queue_key).await? {
+        if state.is_allowed
+            && let Some(job_id) = storage.dequeue(queue_key).await? {
                 throttler.consume().await?;
                 return Ok(job_id);
             }
-        }
 
         sleep(Duration::from_millis(state.throttled_for.unwrap_or(100))).await;
     }
