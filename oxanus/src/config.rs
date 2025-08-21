@@ -13,6 +13,7 @@ pub struct Config<DT, ET> {
     pub(crate) exit_when_processed: Option<u64>,
     pub(crate) shutdown_signal:
         Pin<Box<dyn Future<Output = Result<(), std::io::Error>> + Send + Sync>>,
+    pub(crate) shutdown_timeout: std::time::Duration,
     pub(crate) cancel_token: CancellationToken,
     pub storage: Storage,
 }
@@ -24,6 +25,7 @@ impl<DT, ET> Config<DT, ET> {
             queues: HashSet::new(),
             exit_when_processed: None,
             shutdown_signal: Box::pin(default_shutdown_signal()),
+            shutdown_timeout: std::time::Duration::from_secs(180),
             cancel_token: CancellationToken::new(),
             storage: storage.clone(),
         }

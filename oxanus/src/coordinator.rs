@@ -66,7 +66,7 @@ where
         }
     }
 
-    wait_for_workers_to_finish(Arc::clone(&semaphores)).await;
+    wait_for_workers_to_finish(config, Arc::clone(&semaphores)).await;
 
     Ok(())
 }
@@ -198,7 +198,14 @@ where
     }
 }
 
-async fn wait_for_workers_to_finish(semaphores: Arc<SemaphoresMap>) {
+async fn wait_for_workers_to_finish<DT, ET>(
+    config: Arc<Config<DT, ET>>,
+    semaphores: Arc<SemaphoresMap>,
+) where
+    DT: Send + Sync + Clone + 'static,
+    ET: std::error::Error + Send + Sync + 'static,
+{
+    let t_start = std::time::Instant::now();
     let mut ticks = 0;
 
     loop {
@@ -211,6 +218,11 @@ async fn wait_for_workers_to_finish(semaphores: Arc<SemaphoresMap>) {
 
         if ticks % 200 == 0 {
             tracing::info!("Waiting for {} workers to finish...", busy_count);
+        }
+
+        if t_start.elapsed() > config.shutdown_timeout {
+            tracing::error!("Shutdown timeout reached");
+            break;
         }
 
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
