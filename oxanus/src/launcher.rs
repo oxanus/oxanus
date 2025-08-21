@@ -105,6 +105,7 @@ where
         }
         _ = config.cancel_token.cancelled() => {}
         _ = shutdown_signal => {
+            tracing::info!("Received shutdown signal");
             config.cancel_token.cancel();
         }
     }
