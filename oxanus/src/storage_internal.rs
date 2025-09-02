@@ -381,10 +381,12 @@ impl StorageInternal {
         let mut cmd = redis::cmd("HMGET");
         cmd.arg(&self.keys.jobs);
         cmd.arg(ids);
-        let envelopes_str: Vec<String> = cmd.query_async(&mut redis).await?;
+        let envelopes_str: Vec<Option<String>> = cmd.query_async(&mut redis).await?;
         let mut envelopes: Vec<JobEnvelope> = vec![];
         for envelope_str in envelopes_str {
-            envelopes.push(serde_json::from_str(&envelope_str)?);
+            if let Some(envelope_str) = envelope_str {
+                envelopes.push(serde_json::from_str(&envelope_str)?);
+            }
         }
         Ok(envelopes)
     }
@@ -847,10 +849,11 @@ impl StorageInternal {
                 }
 
                 if let Some(previous) = previous
-                    && previous > now {
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                        continue;
-                    }
+                    && previous > now
+                {
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    continue;
+                }
 
                 break;
             }
