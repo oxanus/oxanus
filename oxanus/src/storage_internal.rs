@@ -1157,4 +1157,36 @@ mod tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_get_many_with_missing_jobs() -> TestResult {
+        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()), false);
+        let queue = random_string();
+
+        let envelope1 = JobEnvelope::new(queue.clone(), TestWorker {})?;
+        let envelope2 = JobEnvelope::new(queue.clone(), TestWorker {})?;
+        let envelope3 = JobEnvelope::new(queue.clone(), TestWorker {})?;
+
+        storage.enqueue(envelope1.clone()).await?;
+        storage.enqueue(envelope2.clone()).await?;
+        storage.enqueue(envelope3.clone()).await?;
+
+        storage.delete_job(&envelope2.id).await?;
+
+        let job_ids = vec![
+            envelope1.id.clone(),
+            envelope2.id.clone(),
+            envelope3.id.clone(),
+        ];
+        let envelopes = storage.get_many(&job_ids).await?;
+
+        assert_eq!(envelopes.len(), 2);
+
+        let returned_ids: Vec<String> = envelopes.iter().map(|e| e.id.clone()).collect();
+        assert!(returned_ids.contains(&envelope1.id));
+        assert!(!returned_ids.contains(&envelope2.id));
+        assert!(returned_ids.contains(&envelope3.id));
+
+        Ok(())
+    }
 }
