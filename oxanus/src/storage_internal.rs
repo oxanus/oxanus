@@ -56,6 +56,7 @@ pub struct StatsGlobal {
     pub dead: usize,
     pub scheduled: usize,
     pub retries: usize,
+    pub latency_s_max: f64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -608,11 +609,15 @@ impl StorageInternal {
 
         let mut processed_count_total = 0;
         let mut enqueued_count_total = 0;
+        let mut latency_s_max = 0.0;
 
         for value in values.iter_mut() {
             if value.queues.is_empty() {
                 value.enqueued = self.enqueued_count(&value.key).await?;
                 value.latency_s = self.latency_s(&value.key).await?;
+                if value.latency_s > latency_s_max {
+                    latency_s_max = value.latency_s;
+                }
             } else {
                 for dynamic_queue in value.queues.iter_mut() {
                     let dynamic_queue_key = format!("{}#{}", value.key, dynamic_queue.suffix);
@@ -624,6 +629,9 @@ impl StorageInternal {
 
                     if value.latency_s < latency_s {
                         value.latency_s = latency_s;
+                    }
+                    if dynamic_queue.latency_s > latency_s_max {
+                        latency_s_max = dynamic_queue.latency_s;
                     }
                     value.enqueued += enqueued;
                 }
@@ -663,6 +671,7 @@ impl StorageInternal {
                 dead: self.dead_count().await?,
                 scheduled: self.scheduled_count().await?,
                 retries: self.retries_count().await?,
+                latency_s_max,
             },
             processing,
             processes,
