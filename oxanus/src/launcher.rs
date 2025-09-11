@@ -70,6 +70,7 @@ where
     joinset.spawn(schedule_loop(Arc::clone(&config)));
     joinset.spawn(resurrect_loop(Arc::clone(&config)));
     joinset.spawn(cron_loop(Arc::clone(&config)));
+    joinset.spawn(cleanup_loop(Arc::clone(&config)));
 
     for queue_config in &config.queues {
         coordinator_joinset.spawn(coordinator::run(
@@ -144,6 +145,22 @@ where
         .await?;
 
     tracing::trace!("Retry loop finished");
+
+    Ok(())
+}
+
+async fn cleanup_loop<DT, ET>(config: Arc<Config<DT, ET>>) -> Result<(), OxanusError>
+where
+    DT: Send + Sync + Clone + 'static,
+    ET: std::error::Error + Send + Sync + 'static,
+{
+    config
+        .storage
+        .internal
+        .cleanup_loop(config.cancel_token.clone())
+        .await?;
+
+    tracing::trace!("Cleanup loop finished");
 
     Ok(())
 }

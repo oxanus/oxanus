@@ -1,11 +1,12 @@
 use crate::config::Config;
 use crate::context::{ContextValue, JobState};
 use crate::error::OxanusError;
-use crate::job_envelope::JobEnvelope;
 use crate::{Context, JobId, Queue};
 
-struct ProcessJobResult {
-    success: bool,
+enum ProcessJobResult {
+    Success,
+    Failed,
+    Missing,
 }
 
 #[derive(Default, Debug)]
@@ -13,6 +14,7 @@ pub struct DrainStats {
     pub processed: u64,
     pub succeeded: u64,
     pub failed: u64,
+    pub missing: u64,
 }
 
 /// Drains a queue of jobs.
@@ -44,10 +46,10 @@ where
 
     while let Some(job_id) = config.storage.internal.dequeue(&queue_key).await? {
         let result = process_job(config, ctx.clone(), job_id).await?;
-        if result.success {
-            stats.succeeded += 1;
-        } else {
-            stats.failed += 1;
+        match result {
+            ProcessJobResult::Success => stats.succeeded += 1,
+            ProcessJobResult::Failed => stats.failed += 1,
+            ProcessJobResult::Missing => stats.missing += 1,
         }
         stats.processed += 1;
     }
@@ -64,12 +66,10 @@ where
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
-    let envelope: JobEnvelope = config
-        .storage
-        .internal
-        .get_job(&job_id)
-        .await?
-        .ok_or(OxanusError::GenericError("Job not found".to_string()))?;
+    let envelope = match config.storage.internal.get_job(&job_id).await? {
+        Some(envelope) => envelope,
+        None => return Ok(ProcessJobResult::Missing),
+    };
 
     let job = config
         .registry
@@ -82,7 +82,6 @@ where
     };
 
     let job_result = job.process(&full_ctx).await;
-    let success = job_result.is_ok();
 
     match job_result {
         Ok(()) => {
@@ -91,6 +90,7 @@ where
                 .internal
                 .finish_with_success(&envelope)
                 .await?;
+            Ok(ProcessJobResult::Success)
         }
         Err(e) => {
             tracing::error!("Job failed: {}", e);
@@ -100,8 +100,7 @@ where
                 .finish_with_failure(&envelope)
                 .await?;
             config.storage.internal.kill(&envelope).await?;
+            Ok(ProcessJobResult::Failed)
         }
     }
-
-    Ok(ProcessJobResult { success })
 }

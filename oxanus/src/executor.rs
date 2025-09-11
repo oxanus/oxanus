@@ -119,6 +119,7 @@ where
     queue = envelope.queue,
     worker = envelope.job.name,
     args = %envelope.job.args,
+    retries = envelope.meta.retries,
     success,
 )))]
 async fn process<DT, ET>(
@@ -133,6 +134,10 @@ where
 {
     #[cfg(feature = "tracing-instrument")]
     let span = tracing::Span::current();
+    #[cfg(feature = "tracing-instrument")]
+    let delay = chrono::Utc::now().timestamp_micros() as u64 - envelope.meta.created_at;
+    #[cfg(feature = "tracing-instrument")]
+    span.record("delay_us", delay);
 
     let result = worker.process(&full_ctx).await;
 

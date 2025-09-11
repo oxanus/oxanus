@@ -15,7 +15,7 @@ use crate::{
     worker_registry::CronJob,
 };
 
-// const JOB_EXPIRE_TIME: i64 = 7 * 24 * 3600; // 7 days
+const JOB_EXPIRE_TIME: u64 = 7 * 24 * 3600; // 7 days
 const RESURRECT_THRESHOLD_SECS: i64 = 5;
 
 #[derive(Clone)]
@@ -384,10 +384,8 @@ impl StorageInternal {
         cmd.arg(ids);
         let envelopes_str: Vec<Option<String>> = cmd.query_async(&mut redis).await?;
         let mut envelopes: Vec<JobEnvelope> = vec![];
-        for envelope_str in envelopes_str {
-            if let Some(envelope_str) = envelope_str {
-                envelopes.push(serde_json::from_str(&envelope_str)?);
-            }
+        for envelope_str in envelopes_str.into_iter().flatten() {
+            envelopes.push(serde_json::from_str(&envelope_str)?);
         }
         Ok(envelopes)
     }
@@ -706,44 +704,62 @@ impl StorageInternal {
     pub async fn retry_loop(&self, cancel_token: CancellationToken) -> Result<(), OxanusError> {
         tracing::info!("Starting retry loop");
 
-        let mut redis = self.connection().await?;
-
         loop {
-            if cancel_token.is_cancelled() {
-                return Ok(());
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    return Ok(());
+                }
+                _ = tokio::time::sleep(tokio::time::Duration::from_millis(300)) => {
+                    let mut redis = self.connection().await?;
+                    self.enqueue_scheduled(&mut redis, &self.keys.retry).await?;
+                }
             }
-
-            self.enqueue_scheduled(&mut redis, &self.keys.retry).await?;
-            tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
         }
     }
 
     pub async fn schedule_loop(&self, cancel_token: CancellationToken) -> Result<(), OxanusError> {
         tracing::info!("Starting schedule loop");
 
-        let mut redis = self.connection().await?;
+        loop {
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    return Ok(());
+                }
+                _ = tokio::time::sleep(tokio::time::Duration::from_millis(300)) => {
+                    let mut redis = self.connection().await?;
+                    self.enqueue_scheduled(&mut redis, &self.keys.schedule)
+                        .await?;
+                }
+            }
+        }
+    }
+
+    pub async fn cleanup_loop(&self, cancel_token: CancellationToken) -> Result<(), OxanusError> {
+        tracing::info!("Starting cleanup loop");
 
         loop {
-            if cancel_token.is_cancelled() {
-                return Ok(());
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    return Ok(());
+                }
+                _ = tokio::time::sleep(tokio::time::Duration::from_secs(600)) => {
+                    self.cleanup().await?;
+                }
             }
-
-            self.enqueue_scheduled(&mut redis, &self.keys.schedule)
-                .await?;
-            tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
         }
     }
 
     pub async fn ping_loop(&self, cancel_token: CancellationToken) -> Result<(), OxanusError> {
-        let mut redis = self.connection().await?;
-
         loop {
-            if cancel_token.is_cancelled() {
-                return Ok(());
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    return Ok(());
+                }
+                _ = tokio::time::sleep(tokio::time::Duration::from_millis(500)) => {
+                    let mut redis = self.connection().await?;
+                    self.ping(&mut redis).await?;
+                }
             }
-
-            self.ping(&mut redis).await?;
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
     }
 
@@ -763,6 +779,40 @@ impl StorageInternal {
             .query_async(redis)
             .await?;
         Ok(())
+    }
+
+    pub async fn cleanup(&self) -> Result<usize, OxanusError> {
+        let mut redis = self.connection().await?;
+
+        let job_ids_to_clean = {
+            let mut iter: redis::AsyncIter<'_, (JobId, String)> =
+                redis.hscan(&self.keys.jobs).await?;
+            let now = chrono::Utc::now().timestamp() as u64;
+
+            let mut job_ids = vec![];
+
+            while let Some(item) = iter.next_item().await {
+                let (job_id, job_str) = item?;
+
+                let parsed: Result<JobEnvelope, _> = serde_json::from_str(&job_str);
+
+                match parsed {
+                    Ok(job_envelope) => {
+                        if job_envelope.meta.created_at < now - JOB_EXPIRE_TIME {
+                            job_ids.push(job_id);
+                        }
+                    }
+                    Err(_) => job_ids.push(job_id),
+                }
+            }
+
+            job_ids
+        };
+
+        let count = job_ids_to_clean.len();
+        let () = redis.hdel(&self.keys.jobs, job_ids_to_clean).await?;
+
+        Ok(count)
     }
 
     pub async fn get_process_data(&self, id: &str) -> Result<Option<Process>, OxanusError> {
@@ -817,17 +867,21 @@ impl StorageInternal {
     pub async fn resurrect_loop(&self, cancel_token: CancellationToken) -> Result<(), OxanusError> {
         tracing::info!("Starting resurrect loop");
 
-        let mut redis = self.connection().await?;
-
-        self.ping(&mut redis).await?;
+        {
+            let mut redis = self.connection().await?;
+            self.ping(&mut redis).await?;
+        }
 
         loop {
-            if cancel_token.is_cancelled() {
-                return Ok(());
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    return Ok(());
+                }
+                _ = tokio::time::sleep(tokio::time::Duration::from_secs(2)) => {
+                    let mut redis = self.connection().await?;
+                    self.resurrect(&mut redis).await?;
+                }
             }
-
-            self.resurrect(&mut redis).await?;
-            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
         }
     }
 
@@ -1083,6 +1137,30 @@ mod tests {
         let latency = storage.latency_ms(&queue).await?;
 
         assert!((latency - actual_latency as f64).abs() < 50.0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cleanup() -> TestResult {
+        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()), false);
+        let queue = random_string();
+        let mut expired_envelope = JobEnvelope::new(queue.clone(), TestWorker {})?;
+        expired_envelope.meta.created_at =
+            chrono::Utc::now().timestamp() as u64 - JOB_EXPIRE_TIME - 1;
+
+        let active_envelope = JobEnvelope::new(queue.clone(), TestWorker {})?;
+
+        storage.enqueue(expired_envelope.clone()).await?;
+        storage.enqueue(active_envelope.clone()).await?;
+
+        assert!(storage.get_job(&expired_envelope.id).await?.is_some());
+        assert!(storage.get_job(&active_envelope.id).await?.is_some());
+
+        assert_eq!(storage.cleanup().await?, 1);
+
+        assert!(storage.get_job(&expired_envelope.id).await?.is_none());
+        assert!(storage.get_job(&active_envelope.id).await?.is_some());
 
         Ok(())
     }
