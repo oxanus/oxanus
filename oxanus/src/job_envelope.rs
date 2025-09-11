@@ -102,4 +102,16 @@ impl JobMeta {
     pub fn created_at_millis(&self) -> u64 {
         self.created_at / 1000
     }
+
+    pub fn age_secs(&self) -> u64 {
+        chrono::Utc::now().timestamp() as u64 - self.created_at_secs()
+    }
+
+    pub fn age_micros(&self) -> u64 {
+        chrono::Utc::now().timestamp_micros() as u64 - self.created_at_micros()
+    }
+
+    pub fn age_millis(&self) -> u64 {
+        chrono::Utc::now().timestamp_millis() as u64 - self.created_at_millis()
+    }
 }
