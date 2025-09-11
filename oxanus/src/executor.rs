@@ -135,7 +135,7 @@ where
     #[cfg(feature = "tracing-instrument")]
     let span = tracing::Span::current();
     #[cfg(feature = "tracing-instrument")]
-    let delay = chrono::Utc::now().timestamp_micros() as u64 - envelope.meta.created_at;
+    let delay = chrono::Utc::now().timestamp_micros() as u64 - envelope.meta.created_at_micros();
     #[cfg(feature = "tracing-instrument")]
     span.record("delay_us", delay);
 

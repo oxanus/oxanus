@@ -481,7 +481,7 @@ impl StorageInternal {
                 let envelope = self.get_job(job_id).await?;
                 Ok(envelope.map_or(0.0, |envelope| {
                     let now = chrono::Utc::now().timestamp_micros() as u64;
-                    (now - envelope.meta.created_at) as f64
+                    (now - envelope.meta.created_at_micros()) as f64
                 }))
             }
             None => Ok(0.0),
@@ -798,7 +798,7 @@ impl StorageInternal {
 
                 match parsed {
                     Ok(job_envelope) => {
-                        if job_envelope.meta.created_at < now - JOB_EXPIRE_TIME {
+                        if job_envelope.meta.created_at_secs() < now - JOB_EXPIRE_TIME {
                             job_ids.push(job_id);
                         }
                     }
@@ -810,7 +810,10 @@ impl StorageInternal {
         };
 
         let count = job_ids_to_clean.len();
-        let () = redis.hdel(&self.keys.jobs, job_ids_to_clean).await?;
+        if count > 0 {
+            tracing::info!("Cleaning up {count} expired jobs");
+            let () = redis.hdel(&self.keys.jobs, job_ids_to_clean).await?;
+        }
 
         Ok(count)
     }
@@ -1145,22 +1148,37 @@ mod tests {
     async fn test_cleanup() -> TestResult {
         let storage = StorageInternal::new(redis_pool().await?, Some(random_string()), false);
         let queue = random_string();
-        let mut expired_envelope = JobEnvelope::new(queue.clone(), TestWorker {})?;
-        expired_envelope.meta.created_at =
-            chrono::Utc::now().timestamp() as u64 - JOB_EXPIRE_TIME - 1;
+        let mut expired_envelope1 = JobEnvelope::new(queue.clone(), TestWorker {})?;
+        expired_envelope1.meta.created_at =
+            (chrono::Utc::now().timestamp() as u64 - JOB_EXPIRE_TIME - 1) * 1000000;
+        let mut expired_envelope2 = JobEnvelope::new(queue.clone(), TestWorker {})?;
+        expired_envelope2.meta.created_at =
+            (chrono::Utc::now().timestamp() as u64 - JOB_EXPIRE_TIME - 1) * 1000000;
 
         let active_envelope = JobEnvelope::new(queue.clone(), TestWorker {})?;
 
-        storage.enqueue(expired_envelope.clone()).await?;
+        storage.enqueue(expired_envelope1.clone()).await?;
+        storage.enqueue(expired_envelope2.clone()).await?;
         storage.enqueue(active_envelope.clone()).await?;
 
-        assert!(storage.get_job(&expired_envelope.id).await?.is_some());
+        assert!(storage.get_job(&expired_envelope1.id).await?.is_some());
+        assert!(storage.get_job(&expired_envelope2.id).await?.is_some());
         assert!(storage.get_job(&active_envelope.id).await?.is_some());
 
-        assert_eq!(storage.cleanup().await?, 1);
+        assert_eq!(storage.cleanup().await?, 2);
 
-        assert!(storage.get_job(&expired_envelope.id).await?.is_none());
+        assert!(storage.get_job(&expired_envelope1.id).await?.is_none());
+        assert!(storage.get_job(&expired_envelope2.id).await?.is_none());
         assert!(storage.get_job(&active_envelope.id).await?.is_some());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_empty() -> TestResult {
+        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()), false);
+
+        assert_eq!(storage.cleanup().await?, 0);
 
         Ok(())
     }

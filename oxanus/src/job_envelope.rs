@@ -89,3 +89,17 @@ impl JobEnvelope {
         }
     }
 }
+
+impl JobMeta {
+    pub fn created_at_secs(&self) -> u64 {
+        self.created_at / 1000000
+    }
+
+    pub fn created_at_micros(&self) -> u64 {
+        self.created_at
+    }
+
+    pub fn created_at_millis(&self) -> u64 {
+        self.created_at / 1000
+    }
+}
