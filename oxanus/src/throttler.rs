@@ -5,18 +5,18 @@ pub struct Throttler {
     redis_pool: deadpool_redis::Pool,
     key: String,
     limit: u64,
-    window_ms: u64,
+    window_ms: i64,
 }
 
 #[derive(Debug)]
 pub struct ThrottlerState {
     pub requests: u64,
     pub is_allowed: bool,
-    pub throttled_for: Option<u64>,
+    pub throttled_for: Option<i64>,
 }
 
 impl Throttler {
-    pub fn new(redis_pool: deadpool_redis::Pool, key: &str, limit: u64, window_ms: u64) -> Self {
+    pub fn new(redis_pool: deadpool_redis::Pool, key: &str, limit: u64, window_ms: i64) -> Self {
         Throttler {
             redis_pool,
             key: Self::build_key(key),
@@ -33,7 +33,7 @@ impl Throttler {
         if state.is_allowed {
             let (updated, _): (u64, ()) = redis::pipe()
                 .zadd(&self.key, current_time, current_time)
-                .expire(&self.key, i64::try_from(self.window_s())?)
+                .expire(&self.key, self.window_s())
                 .query_async(&mut redis)
                 .await?;
 
@@ -48,7 +48,7 @@ impl Throttler {
 
     pub async fn state(&self) -> Result<ThrottlerState, OxanusError> {
         let mut redis = self.redis_pool.get().await?;
-        let now = u64::try_from(chrono::Utc::now().timestamp_micros())?;
+        let now = chrono::Utc::now().timestamp_micros();
         let window_start = now - self.window_micros();
 
         let (_, first, request_count): ((), Vec<(String, f64)>, u64) = redis::pipe()
@@ -59,7 +59,7 @@ impl Throttler {
             .await?;
 
         let accurate_window_start = if let Some((_, score)) = first.first() {
-            Some(u64::try_from(*score as i64)?)
+            Some(*score as i64)
         } else {
             None
         };
@@ -85,11 +85,11 @@ impl Throttler {
         format!("oxanus:throttler:{key}")
     }
 
-    fn window_s(&self) -> u64 {
+    fn window_s(&self) -> i64 {
         self.window_ms / 1000
     }
 
-    fn window_micros(&self) -> u64 {
+    fn window_micros(&self) -> i64 {
         self.window_ms * 1000
     }
 }

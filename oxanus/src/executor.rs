@@ -120,7 +120,7 @@ where
     worker = envelope.job.name,
     args = %envelope.job.args,
     retries = envelope.meta.retries,
-    age_us = envelope.meta.age_micros(),
+    age_ms = envelope.meta.age_millis(),
     success,
 )))]
 async fn process<DT, ET>(

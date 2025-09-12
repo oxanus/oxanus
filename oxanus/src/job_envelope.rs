@@ -25,7 +25,7 @@ pub struct JobMeta {
     pub id: JobId,
     pub retries: u32,
     pub unique: bool,
-    pub created_at: u64,
+    pub created_at: i64,
     pub state: Option<serde_json::Value>,
 }
 
@@ -50,7 +50,7 @@ impl JobEnvelope {
                 id,
                 retries: 0,
                 unique,
-                created_at: u64::try_from(chrono::Utc::now().timestamp_micros())?,
+                created_at: chrono::Utc::now().timestamp_micros(),
                 state: None,
             },
         })
@@ -68,7 +68,7 @@ impl JobEnvelope {
                 id,
                 retries: 0,
                 unique: true,
-                created_at: u64::try_from(chrono::Utc::now().timestamp_micros())?,
+                created_at: chrono::Utc::now().timestamp_micros(),
                 state: None,
             },
         })
@@ -91,27 +91,27 @@ impl JobEnvelope {
 }
 
 impl JobMeta {
-    pub fn created_at_secs(&self) -> u64 {
+    pub fn created_at_secs(&self) -> i64 {
         self.created_at / 1000000
     }
 
-    pub fn created_at_micros(&self) -> u64 {
+    pub fn created_at_micros(&self) -> i64 {
         self.created_at
     }
 
-    pub fn created_at_millis(&self) -> u64 {
+    pub fn created_at_millis(&self) -> i64 {
         self.created_at / 1000
     }
 
-    pub fn age_secs(&self) -> u64 {
-        chrono::Utc::now().timestamp() as u64 - self.created_at_secs()
+    pub fn age_micros(&self) -> i64 {
+        (chrono::Utc::now().timestamp_micros() - self.created_at_micros()).max(0)
     }
 
-    pub fn age_micros(&self) -> u64 {
-        chrono::Utc::now().timestamp_micros() as u64 - self.created_at_micros()
+    pub fn age_secs(&self) -> i64 {
+        self.age_micros() / 1000000
     }
 
-    pub fn age_millis(&self) -> u64 {
-        chrono::Utc::now().timestamp_millis() as u64 - self.created_at_millis()
+    pub fn age_millis(&self) -> i64 {
+        self.age_micros() / 1000
     }
 }

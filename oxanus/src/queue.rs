@@ -118,7 +118,7 @@ impl QueueKind {
 
 #[derive(Debug, Clone)]
 pub struct QueueThrottle {
-    pub window_ms: u64,
+    pub window_ms: i64,
     pub limit: u64,
 }
 

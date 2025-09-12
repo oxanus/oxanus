@@ -15,7 +15,7 @@ use crate::{
     worker_registry::CronJob,
 };
 
-const JOB_EXPIRE_TIME: u64 = 7 * 24 * 3600; // 7 days
+const JOB_EXPIRE_TIME: i64 = 7 * 24 * 3600; // 7 days
 const RESURRECT_THRESHOLD_SECS: i64 = 5;
 
 #[derive(Clone)]
@@ -480,7 +480,7 @@ impl StorageInternal {
             Some(job_id) => {
                 let envelope = self.get_job(job_id).await?;
                 Ok(envelope.map_or(0.0, |envelope| {
-                    let now = chrono::Utc::now().timestamp_micros() as u64;
+                    let now = chrono::Utc::now().timestamp_micros();
                     (now - envelope.meta.created_at_micros()) as f64
                 }))
             }
@@ -787,7 +787,7 @@ impl StorageInternal {
         let job_ids_to_clean = {
             let mut iter: redis::AsyncIter<'_, (JobId, String)> =
                 redis.hscan(&self.keys.jobs).await?;
-            let now = chrono::Utc::now().timestamp() as u64;
+            let now = chrono::Utc::now().timestamp();
 
             let mut job_ids = vec![];
 
@@ -1134,7 +1134,7 @@ mod tests {
         let mut envelope = JobEnvelope::new(queue.clone(), TestWorker {})?;
         let now = chrono::Utc::now();
         let actual_latency = 7777;
-        envelope.meta.created_at = now.timestamp_micros() as u64 - actual_latency * 1_000;
+        envelope.meta.created_at = now.timestamp_micros() - actual_latency * 1_000;
         storage.enqueue(envelope).await?;
 
         let latency = storage.latency_ms(&queue).await?;
@@ -1150,10 +1150,10 @@ mod tests {
         let queue = random_string();
         let mut expired_envelope1 = JobEnvelope::new(queue.clone(), TestWorker {})?;
         expired_envelope1.meta.created_at =
-            (chrono::Utc::now().timestamp() as u64 - JOB_EXPIRE_TIME - 1) * 1000000;
+            (chrono::Utc::now().timestamp() - JOB_EXPIRE_TIME - 1) * 1000000;
         let mut expired_envelope2 = JobEnvelope::new(queue.clone(), TestWorker {})?;
         expired_envelope2.meta.created_at =
-            (chrono::Utc::now().timestamp() as u64 - JOB_EXPIRE_TIME - 1) * 1000000;
+            (chrono::Utc::now().timestamp() - JOB_EXPIRE_TIME - 1) * 1000000;
 
         let active_envelope = JobEnvelope::new(queue.clone(), TestWorker {})?;
 
