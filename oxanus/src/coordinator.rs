@@ -102,7 +102,12 @@ where
         }
     };
 
-    tracing::debug!("Received envelope: {:?}", &envelope);
+    tracing::debug!(
+        job_id = envelope.id,
+        age_ms = envelope.meta.age_millis(),
+        envelope = %serde_json::to_value(&envelope)?,
+        "Received envelope"
+    );
     let job = match config
         .registry
         .build(&envelope.job.name, envelope.job.args.clone())

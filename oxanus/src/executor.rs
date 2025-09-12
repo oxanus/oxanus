@@ -32,6 +32,7 @@ where
         job_id = envelope.id,
         queue = envelope.queue,
         worker = envelope.job.name,
+        age_ms = envelope.meta.age_millis(),
         "Job started"
     );
     let start = std::time::Instant::now();
