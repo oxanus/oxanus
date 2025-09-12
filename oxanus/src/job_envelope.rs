@@ -26,6 +26,8 @@ pub struct JobMeta {
     pub retries: u32,
     pub unique: bool,
     pub created_at: i64,
+    #[serde(default)]
+    pub scheduled_at: i64,
     pub state: Option<serde_json::Value>,
 }
 
@@ -51,12 +53,18 @@ impl JobEnvelope {
                 retries: 0,
                 unique,
                 created_at: chrono::Utc::now().timestamp_micros(),
+                scheduled_at: chrono::Utc::now().timestamp_micros(),
                 state: None,
             },
         })
     }
 
-    pub fn new_cron(queue: String, id: String, name: String) -> Result<Self, OxanusError> {
+    pub fn new_cron(
+        queue: String,
+        id: String,
+        name: String,
+        scheduled_at: i64,
+    ) -> Result<Self, OxanusError> {
         Ok(Self {
             id: id.clone(),
             queue,
@@ -69,6 +77,7 @@ impl JobEnvelope {
                 retries: 0,
                 unique: true,
                 created_at: chrono::Utc::now().timestamp_micros(),
+                scheduled_at,
                 state: None,
             },
         })
@@ -84,6 +93,7 @@ impl JobEnvelope {
                 retries: self.meta.retries + 1,
                 unique: self.meta.unique,
                 created_at: self.meta.created_at,
+                scheduled_at: self.meta.scheduled_at,
                 state: self.meta.state,
             },
         }
@@ -95,23 +105,27 @@ impl JobMeta {
         self.created_at / 1000000
     }
 
-    pub fn created_at_micros(&self) -> i64 {
-        self.created_at
-    }
-
     pub fn created_at_millis(&self) -> i64 {
         self.created_at / 1000
     }
 
-    pub fn age_micros(&self) -> i64 {
-        (chrono::Utc::now().timestamp_micros() - self.created_at_micros()).max(0)
+    pub fn scheduled_at_millis(&self) -> i64 {
+        self.scheduled_at / 1000
     }
 
-    pub fn age_secs(&self) -> i64 {
-        self.age_micros() / 1000000
+    pub fn scheduled_at_secs(&self) -> i64 {
+        self.scheduled_at / 1000000
     }
 
-    pub fn age_millis(&self) -> i64 {
-        self.age_micros() / 1000
+    fn latency_micros(&self) -> i64 {
+        (chrono::Utc::now().timestamp_micros() - self.scheduled_at).max(0)
+    }
+
+    pub fn latency_secs(&self) -> i64 {
+        self.latency_micros() / 1000000
+    }
+
+    pub fn latency_millis(&self) -> i64 {
+        self.latency_micros() / 1000
     }
 }

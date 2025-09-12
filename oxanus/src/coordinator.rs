@@ -104,7 +104,7 @@ where
 
     tracing::debug!(
         job_id = envelope.id,
-        age_ms = envelope.meta.age_millis(),
+        latency_ms = envelope.meta.latency_millis(),
         envelope = %serde_json::to_value(&envelope)?,
         "Received envelope"
     );

@@ -481,7 +481,7 @@ impl StorageInternal {
                 let envelope = self.get_job(job_id).await?;
                 Ok(envelope.map_or(0.0, |envelope| {
                     let now = chrono::Utc::now().timestamp_micros();
-                    (now - envelope.meta.created_at_micros()) as f64
+                    (now - envelope.meta.created_at) as f64
                 }))
             }
             None => Ok(0.0),
@@ -924,9 +924,14 @@ impl StorageInternal {
                 break;
             }
 
-            let job_id = format!("{}-{}", job_name, next.timestamp_micros());
-            let envelope =
-                JobEnvelope::new_cron(cron_job.queue_key.clone(), job_id, job_name.clone())?;
+            let scheduled_at = next.timestamp_micros();
+            let job_id = format!("{}-{}", job_name, scheduled_at);
+            let envelope = JobEnvelope::new_cron(
+                cron_job.queue_key.clone(),
+                job_id,
+                job_name.clone(),
+                scheduled_at,
+            )?;
 
             self.enqueue_at(envelope, next).await?;
 

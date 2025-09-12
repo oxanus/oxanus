@@ -32,7 +32,7 @@ where
         job_id = envelope.id,
         queue = envelope.queue,
         worker = envelope.job.name,
-        age_ms = envelope.meta.age_millis(),
+        latency_ms = envelope.meta.latency_millis(),
         "Job started"
     );
     let start = std::time::Instant::now();
@@ -121,7 +121,7 @@ where
     worker = envelope.job.name,
     args = %envelope.job.args,
     retries = envelope.meta.retries,
-    age_ms = envelope.meta.age_millis(),
+    latency_ms = envelope.meta.latency_millis(),
     success,
 )))]
 async fn process<DT, ET>(
