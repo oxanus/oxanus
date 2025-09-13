@@ -21,6 +21,44 @@ pub async fn run<DT, ET>(
     DT: Send + Sync + Clone + 'static,
     ET: std::error::Error + Send + Sync + 'static,
 {
+    let concurrency = queue_config.concurrency.max(1);
+    let mut joinset = tokio::task::JoinSet::new();
+
+    for worker_id in 0..concurrency.min(8) {
+        joinset.spawn(run_dequeue_worker(
+            Arc::clone(&config),
+            queue_config.clone(),
+            queue_key.clone(),
+            job_tx.clone(),
+            Arc::clone(&semaphores),
+            worker_id,
+        ));
+    }
+
+    while let Some(result) = joinset.join_next().await {
+        if let Err(e) = result {
+            tracing::error!("Dequeue worker panicked: {}", e);
+        }
+    }
+}
+
+async fn run_dequeue_worker<DT, ET>(
+    config: Arc<Config<DT, ET>>,
+    queue_config: QueueConfig,
+    queue_key: String,
+    job_tx: mpsc::Sender<WorkerJob>,
+    semaphores: Arc<SemaphoresMap>,
+    worker_id: usize,
+) where
+    DT: Send + Sync + Clone + 'static,
+    ET: std::error::Error + Send + Sync + 'static,
+{
+    tracing::debug!(
+        "Starting dequeue worker {} for queue {}",
+        worker_id,
+        queue_key
+    );
+
     loop {
         let semaphore = semaphores.get_or_create(queue_key.clone()).await;
         let permit = semaphore.acquire_owned().await.unwrap();
@@ -35,7 +73,7 @@ pub async fn run<DT, ET>(
                     .expect("Failed to send job to worker");
             }
             _ = config.cancel_token.cancelled() => {
-                tracing::debug!("Stopping dispatcher for queue {}", queue_key);
+                tracing::debug!("Stopping dequeue worker {} for queue {}", worker_id, queue_key);
                 drop(permit);
                 break;
             }
@@ -43,7 +81,7 @@ pub async fn run<DT, ET>(
     }
 }
 
-async fn pop_queue_message(
+pub async fn pop_queue_message(
     storage: &StorageInternal,
     queue_config: &QueueConfig,
     queue_key: &str,

@@ -150,6 +150,7 @@ async fn process_result<ET>(
     result_tx.send(JobResult { envelope, kind }).await.ok();
 }
 
+
 async fn run_queue_watcher<DT, ET>(
     config: Arc<Config<DT, ET>>,
     queue_config: QueueConfig,

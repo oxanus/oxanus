@@ -48,7 +48,7 @@ impl StorageBuilder {
     pub fn from_redis_url(mut self, url: impl Into<String>) -> Result<Self, OxanusError> {
         let mut cfg = deadpool_redis::Config::from_url(url);
         cfg.pool = Some(deadpool_redis::PoolConfig {
-            max_size: self.max_pool_size.unwrap_or(50),
+            max_size: self.max_pool_size.unwrap_or(100),
             timeouts: deadpool_redis::Timeouts {
                 wait: Some(std::time::Duration::from_millis(300)),
                 create: Some(std::time::Duration::from_millis(300)),
