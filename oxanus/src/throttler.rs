@@ -28,7 +28,7 @@ impl Throttler {
     pub async fn consume(&self) -> Result<ThrottlerState, OxanusError> {
         let mut redis = self.redis_pool.get().await?;
         let current_time = u64::try_from(chrono::Utc::now().timestamp_micros())?;
-        let state = self.state().await?;
+        let state = self.state_w_conn(&mut redis).await?;
 
         if state.is_allowed {
             let (updated, _): (u64, ()) = redis::pipe()
@@ -48,6 +48,13 @@ impl Throttler {
 
     pub async fn state(&self) -> Result<ThrottlerState, OxanusError> {
         let mut redis = self.redis_pool.get().await?;
+        self.state_w_conn(&mut redis).await
+    }
+
+    async fn state_w_conn(
+        &self,
+        redis: &mut deadpool_redis::Connection,
+    ) -> Result<ThrottlerState, OxanusError> {
         let now = chrono::Utc::now().timestamp_micros();
         let window_start = now - self.window_micros();
 

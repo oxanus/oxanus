@@ -174,8 +174,15 @@ impl StorageInternal {
 
     pub async fn enqueue(&self, envelope: JobEnvelope) -> Result<JobId, OxanusError> {
         let mut redis = self.connection().await?;
+        self.enqueue_w_conn(&mut redis, envelope).await
+    }
 
-        if self.should_skip_job(&mut redis, &envelope).await? {
+    async fn enqueue_w_conn(
+        &self,
+        redis: &mut deadpool_redis::Connection,
+        envelope: JobEnvelope,
+    ) -> Result<JobId, OxanusError> {
+        if self.should_skip_job(redis, &envelope).await? {
             tracing::warn!("Unique job {} already exists, skipping", envelope.id);
             return Ok(envelope.id);
         }
@@ -333,6 +340,14 @@ impl StorageInternal {
 
     pub async fn get_job(&self, id: &JobId) -> Result<Option<JobEnvelope>, OxanusError> {
         let mut redis = self.connection().await?;
+        self.get_job_w_conn(&mut redis, id).await
+    }
+
+    async fn get_job_w_conn(
+        &self,
+        redis: &mut deadpool_redis::Connection,
+        id: &JobId,
+    ) -> Result<Option<JobEnvelope>, OxanusError> {
         let envelope: Option<String> = redis.hget(&self.keys.jobs, id).await?;
         match envelope {
             Some(envelope) => Ok(Some(serde_json::from_str(&envelope)?)),
@@ -421,13 +436,10 @@ impl StorageInternal {
         Ok(())
     }
 
-    pub async fn enqueue_scheduled(
-        &self,
-        redis: &mut deadpool_redis::Connection,
-        schedule_queue: &str,
-    ) -> Result<usize, OxanusError> {
+    pub async fn enqueue_scheduled(&self, schedule_queue: &str) -> Result<usize, OxanusError> {
         let now = chrono::Utc::now().timestamp_micros();
-        let job_ids: Vec<String> = (*redis).zrangebyscore(schedule_queue, 0, now).await?;
+        let mut redis = self.connection().await?;
+        let job_ids: Vec<String> = redis.zrangebyscore(schedule_queue, 0, now).await?;
 
         if job_ids.is_empty() {
             return Ok(0);
@@ -457,12 +469,24 @@ impl StorageInternal {
 
     pub async fn enqueued_count(&self, queue: &str) -> Result<usize, OxanusError> {
         let mut redis = self.connection().await?;
+        self.enqueued_count_w_conn(&mut redis, queue).await
+    }
+
+    async fn enqueued_count_w_conn(
+        &self,
+        redis: &mut deadpool_redis::Connection,
+        queue: &str,
+    ) -> Result<usize, OxanusError> {
         let count: i64 = (*redis).llen(self.namespace_queue(queue)).await?;
         Ok(count as usize)
     }
 
-    pub async fn latency_s(&self, queue: &str) -> Result<f64, OxanusError> {
-        self.latency_micros(queue)
+    async fn latency_s_w_conn(
+        &self,
+        redis: &mut deadpool_redis::Connection,
+        queue: &str,
+    ) -> Result<f64, OxanusError> {
+        self.latency_micros_w_conn(redis, queue)
             .await
             .map(|latency| latency / 1_000_000.0)
     }
@@ -475,10 +499,18 @@ impl StorageInternal {
 
     pub async fn latency_micros(&self, queue: &str) -> Result<f64, OxanusError> {
         let mut redis = self.connection().await?;
+        self.latency_micros_w_conn(&mut redis, queue).await
+    }
+
+    async fn latency_micros_w_conn(
+        &self,
+        redis: &mut deadpool_redis::Connection,
+        queue: &str,
+    ) -> Result<f64, OxanusError> {
         let result: Vec<String> = (*redis).lrange(self.namespace_queue(queue), 0, 0).await?;
         match result.first() {
             Some(job_id) => {
-                let envelope = self.get_job(job_id).await?;
+                let envelope = self.get_job_w_conn(redis, job_id).await?;
                 Ok(envelope.map_or(0.0, |envelope| {
                     let now = chrono::Utc::now().timestamp_micros();
                     (now - envelope.meta.created_at) as f64
@@ -611,16 +643,20 @@ impl StorageInternal {
 
         for value in values.iter_mut() {
             if value.queues.is_empty() {
-                value.enqueued = self.enqueued_count(&value.key).await?;
-                value.latency_s = self.latency_s(&value.key).await?;
+                value.enqueued = self.enqueued_count_w_conn(&mut redis, &value.key).await?;
+                value.latency_s = self.latency_s_w_conn(&mut redis, &value.key).await?;
                 if value.latency_s > latency_s_max {
                     latency_s_max = value.latency_s;
                 }
             } else {
                 for dynamic_queue in value.queues.iter_mut() {
                     let dynamic_queue_key = format!("{}#{}", value.key, dynamic_queue.suffix);
-                    let enqueued = self.enqueued_count(&dynamic_queue_key).await?;
-                    let latency_s = self.latency_s(&dynamic_queue_key).await?;
+                    let enqueued = self
+                        .enqueued_count_w_conn(&mut redis, &dynamic_queue_key)
+                        .await?;
+                    let latency_s = self
+                        .latency_s_w_conn(&mut redis, &dynamic_queue_key)
+                        .await?;
 
                     dynamic_queue.enqueued = enqueued;
                     dynamic_queue.latency_s = latency_s;
@@ -710,8 +746,7 @@ impl StorageInternal {
                     return Ok(());
                 }
                 _ = tokio::time::sleep(tokio::time::Duration::from_millis(300)) => {
-                    let mut redis = self.connection().await?;
-                    self.enqueue_scheduled(&mut redis, &self.keys.retry).await?;
+                    self.enqueue_scheduled(&self.keys.retry).await?;
                 }
             }
         }
@@ -726,8 +761,7 @@ impl StorageInternal {
                     return Ok(());
                 }
                 _ = tokio::time::sleep(tokio::time::Duration::from_millis(300)) => {
-                    let mut redis = self.connection().await?;
-                    self.enqueue_scheduled(&mut redis, &self.keys.schedule)
+                    self.enqueue_scheduled(&self.keys.schedule)
                         .await?;
                 }
             }
@@ -756,14 +790,14 @@ impl StorageInternal {
                     return Ok(());
                 }
                 _ = tokio::time::sleep(tokio::time::Duration::from_millis(500)) => {
-                    let mut redis = self.connection().await?;
-                    self.ping(&mut redis).await?;
+                    self.ping().await?;
                 }
             }
         }
     }
 
-    pub async fn ping(&self, redis: &mut deadpool_redis::Connection) -> Result<(), OxanusError> {
+    pub async fn ping(&self) -> Result<(), OxanusError> {
+        let mut redis = self.connection().await?;
         let process = self.current_process();
         let _: () = redis::pipe()
             .zadd(
@@ -776,7 +810,7 @@ impl StorageInternal {
                 process.id(),
                 serde_json::to_string(&process)?,
             )
-            .query_async(redis)
+            .query_async(&mut redis)
             .await?;
         Ok(())
     }
@@ -870,10 +904,7 @@ impl StorageInternal {
     pub async fn resurrect_loop(&self, cancel_token: CancellationToken) -> Result<(), OxanusError> {
         tracing::info!("Starting resurrect loop");
 
-        {
-            let mut redis = self.connection().await?;
-            self.ping(&mut redis).await?;
-        }
+        self.ping().await?;
 
         loop {
             tokio::select! {
@@ -881,8 +912,7 @@ impl StorageInternal {
                     return Ok(());
                 }
                 _ = tokio::time::sleep(tokio::time::Duration::from_secs(2)) => {
-                    let mut redis = self.connection().await?;
-                    self.resurrect(&mut redis).await?;
+                    self.resurrect().await?;
                 }
             }
         }
@@ -941,11 +971,9 @@ impl StorageInternal {
         Ok(())
     }
 
-    pub async fn resurrect(
-        &self,
-        redis: &mut deadpool_redis::Connection,
-    ) -> Result<(), OxanusError> {
-        for process_id in self.dead_process_ids(redis).await? {
+    pub async fn resurrect(&self) -> Result<(), OxanusError> {
+        let mut redis = self.connection().await?;
+        for process_id in self.dead_process_ids(&mut redis).await? {
             tracing::info!("Dead process detected: {}", process_id);
 
             let processing_queue = self.processing_queue(&process_id);
@@ -963,7 +991,7 @@ impl StorageInternal {
                 resurrected_count += job_ids.len();
 
                 for job_id in job_ids {
-                    match self.get_job(&job_id).await? {
+                    match self.get_job_w_conn(&mut redis, &job_id).await? {
                         Some(envelope) => {
                             tracing::info!(
                                 job_id = job_id,
@@ -971,7 +999,7 @@ impl StorageInternal {
                                 worker = envelope.job.name,
                                 "Resurrecting job"
                             );
-                            self.enqueue(envelope).await?;
+                            self.enqueue_w_conn(&mut redis, envelope).await?;
                             let _: () = (*redis).lrem(&processing_queue, 1, &job_id).await?;
                         }
                         None => tracing::warn!("Job {} not found", job_id),
@@ -982,7 +1010,7 @@ impl StorageInternal {
             let _: () = redis::pipe()
                 .zrem(&self.keys.processes, &process_id)
                 .hdel(&self.keys.processes_data, &process_id)
-                .query_async(redis)
+                .query_async(&mut redis)
                 .await?;
 
             if resurrected_count > 0 {
@@ -1114,8 +1142,7 @@ mod tests {
     #[tokio::test]
     async fn test_ping() -> TestResult {
         let storage = StorageInternal::new(redis_pool().await?, Some(random_string()), false);
-        let mut redis = storage.connection().await?;
-        storage.ping(&mut redis).await?;
+        storage.ping().await?;
 
         let process = storage.current_process();
         let process_data = storage.get_process_data(&process.id()).await?;
@@ -1220,7 +1247,7 @@ mod tests {
             )
             .await?;
 
-        storage.resurrect(&mut redis).await?;
+        storage.resurrect().await?;
 
         assert_eq!(storage.enqueued_count(&queue).await?, 1);
         assert!(storage.currently_processing_job_ids().await?.is_empty());
@@ -1249,9 +1276,7 @@ mod tests {
             vec![job_id.unwrap()]
         );
 
-        let mut redis = storage.connection().await?;
-
-        storage.resurrect(&mut redis).await?;
+        storage.resurrect().await?;
 
         assert_eq!(storage.enqueued_count(&queue).await?, 1);
         assert!(storage.currently_processing_job_ids().await?.is_empty());
