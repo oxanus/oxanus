@@ -193,12 +193,6 @@ impl StorageInternal {
                 &envelope.id,
                 serde_json::to_string(&envelope)?,
             )
-            // .hexpire(
-            //     &self.keys.jobs,
-            //     JOB_EXPIRE_TIME,
-            //     deadpool_redis::redis::ExpireOption::NONE,
-            //     &envelope.id,
-            // )
             .lpush(self.namespace_queue(&envelope.queue), &envelope.id)
             .query_async(&mut *redis)
             .await?;
@@ -453,16 +447,20 @@ impl StorageInternal {
             map.entry(&envelope.queue).or_default().push(envelope);
         }
 
+        let mut pipe = redis::pipe();
+
         for (queue, envelopes) in map {
             let job_ids: Vec<&str> = envelopes
                 .iter()
                 .map(|envelope| envelope.id.as_str())
                 .collect();
 
-            let _: i32 = redis.lpush(self.namespace_queue(queue), job_ids).await?;
+            pipe.lpush(self.namespace_queue(queue), job_ids);
         }
 
-        let _: i32 = redis.zrembyscore(schedule_queue, 0, now).await?;
+        pipe.zrembyscore(schedule_queue, 0, now);
+
+        let _: () = pipe.query_async(&mut redis).await?;
 
         Ok(envelopes_count)
     }
