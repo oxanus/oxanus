@@ -9,7 +9,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     OxanusError,
-    firehose::{Firehose, FirehouseEvent},
     job_envelope::{JobEnvelope, JobId},
     result_collector::{JobResult, JobResultKind},
     worker_registry::CronJob,
@@ -21,7 +20,6 @@ const RESURRECT_THRESHOLD_SECS: i64 = 5;
 #[derive(Clone)]
 pub(crate) struct StorageInternal {
     pool: deadpool_redis::Pool,
-    firehose: Firehose,
     keys: StorageKeys,
 }
 
@@ -37,7 +35,6 @@ struct StorageKeys {
     processes: String,
     processes_data: String,
     stats: String,
-    firehose: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -124,21 +121,15 @@ impl StorageKeys {
             processes: format!("{namespace}:processes"),
             processes_data: format!("{namespace}:processes_data"),
             stats: format!("{namespace}:stats"),
-            firehose: format!("{namespace}:firehose"),
             namespace,
         }
     }
 }
 
 impl StorageInternal {
-    pub fn new(pool: deadpool_redis::Pool, namespace: Option<String>, firehose: bool) -> Self {
+    pub fn new(pool: deadpool_redis::Pool, namespace: Option<String>) -> Self {
         let keys = StorageKeys::new(namespace.unwrap_or_default());
-        let firehose = Firehose::new(pool.clone(), keys.firehose.clone(), firehose);
-        Self {
-            pool,
-            keys,
-            firehose,
-        }
+        Self { pool, keys }
     }
 
     pub fn namespace(&self) -> &str {
@@ -197,10 +188,6 @@ impl StorageInternal {
             .query_async(&mut *redis)
             .await?;
 
-        self.firehose
-            .event(FirehouseEvent::JobEnqueued(envelope.clone()))
-            .await?;
-
         Ok(envelope.id)
     }
 
@@ -248,17 +235,8 @@ impl StorageInternal {
                 &envelope.id,
                 serde_json::to_string(&envelope)?,
             )
-            // .hexpire(
-            //     &self.keys.jobs,
-            //     JOB_EXPIRE_TIME,
-            //     redis::ExpireOption::NONE,
-            //     &envelope.id,
-            // )
             .zadd(&self.keys.schedule, &envelope.id, time.timestamp_micros())
             .query_async(&mut redis)
-            .await?;
-
-        self.firehouse_event(FirehouseEvent::JobEnqueued(envelope.clone()))
             .await?;
 
         Ok(envelope.id)
@@ -728,10 +706,6 @@ impl StorageInternal {
             .query_async(&mut redis)
             .await?;
 
-        self.firehose
-            .event(FirehouseEvent::JobExecuted(result))
-            .await?;
-
         Ok(())
     }
 
@@ -880,25 +854,6 @@ impl StorageInternal {
         Ok(processes)
     }
 
-    pub async fn firehouse_event(&self, event: FirehouseEvent) -> Result<(), OxanusError> {
-        let internal = self.clone();
-
-        tokio::spawn(async move {
-            internal.firehouse_event_sync(event).await.ok();
-        });
-
-        Ok(())
-    }
-
-    async fn firehouse_event_sync(&self, event: FirehouseEvent) -> Result<(), OxanusError> {
-        let mut redis = self.connection().await?;
-        let _: () = redis::pipe()
-            .publish(&self.keys.firehose, serde_json::to_string(&event)?)
-            .query_async(&mut redis)
-            .await?;
-        Ok(())
-    }
-
     pub async fn resurrect_loop(&self, cancel_token: CancellationToken) -> Result<(), OxanusError> {
         tracing::info!("Starting resurrect loop");
 
@@ -1023,12 +978,6 @@ impl StorageInternal {
         Ok(())
     }
 
-    pub async fn start(&self) -> Result<(), OxanusError> {
-        self.firehose
-            .event(FirehouseEvent::ProcessStarted(self.current_process()))
-            .await
-    }
-
     pub async fn self_cleanup(&self) -> Result<(), OxanusError> {
         let mut redis = self.connection().await?;
         let process = self.current_process();
@@ -1036,10 +985,6 @@ impl StorageInternal {
             .zrem(&self.keys.processes, process.id())
             .hdel(&self.keys.processes_data, process.id())
             .query_async(&mut redis)
-            .await?;
-
-        self.firehose
-            .event_w_redis_sync(&mut redis, FirehouseEvent::ProcessExited(process))
             .await?;
 
         Ok(())
@@ -1139,7 +1084,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_ping() -> TestResult {
-        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()), false);
+        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()));
         storage.ping().await?;
 
         let process = storage.current_process();
@@ -1158,7 +1103,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_latency() -> TestResult {
-        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()), false);
+        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()));
         let queue = random_string();
 
         let mut envelope = JobEnvelope::new(queue.clone(), TestWorker {})?;
@@ -1176,7 +1121,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cleanup() -> TestResult {
-        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()), false);
+        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()));
         let queue = random_string();
         let mut expired_envelope1 = JobEnvelope::new(queue.clone(), TestWorker {})?;
         expired_envelope1.meta.created_at =
@@ -1206,7 +1151,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cleanup_empty() -> TestResult {
-        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()), false);
+        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()));
 
         assert_eq!(storage.cleanup().await?, 0);
 
@@ -1215,7 +1160,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_resurrect() -> TestResult {
-        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()), false);
+        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()));
         let queue = random_string();
         let envelope = JobEnvelope::new(queue.clone(), TestWorker {})?;
 
@@ -1255,7 +1200,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_resurrect_when_process_is_missing() -> TestResult {
-        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()), false);
+        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()));
         let queue = random_string();
         let envelope = JobEnvelope::new(queue.clone(), TestWorker {})?;
 
@@ -1284,7 +1229,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_many_with_missing_jobs() -> TestResult {
-        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()), false);
+        let storage = StorageInternal::new(redis_pool().await?, Some(random_string()));
         let queue = random_string();
 
         let envelope1 = JobEnvelope::new(queue.clone(), TestWorker {})?;

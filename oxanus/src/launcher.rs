@@ -81,8 +81,6 @@ where
         ));
     }
 
-    config.storage.internal.start().await?;
-
     let mut result = Ok(());
 
     tokio::select! {

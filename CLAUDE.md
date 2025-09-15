@@ -5,6 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Development Commands
 
 ### Building and Testing
+
 - `cargo build` - Build the project
 - `cargo test` - Run all tests (unit and integration tests)
 - `cargo test <test_name>` - Run specific tests by name
@@ -14,7 +15,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `cargo doc` - Generate documentation
 
 ### Package Structure
+
 This is a Rust workspace with two main crates:
+
 - `oxanus/` - Main job processing library
 - `oxanus-api/` - API placeholder crate (minimal implementation)
 
@@ -23,6 +26,7 @@ This is a Rust workspace with two main crates:
 Oxanus is a job processing library built around several core components:
 
 ### Core Components
+
 - **Storage**: Main interface for job management, handles enqueueing, scheduling, and monitoring
 - **Config**: Configuration builder that registers queues and workers, manages graceful shutdown
 - **Context**: Provides shared state and utilities to workers
@@ -32,9 +36,9 @@ Oxanus is a job processing library built around several core components:
 - **Coordinator**: Orchestrates job processing across queues
 - **Dispatcher**: Routes jobs to appropriate workers
 - **Executor**: Handles actual job execution
-- **Firehose**: Manages job event streaming
 
 ### Key Design Patterns
+
 - Uses Redis as the backing store (via deadpool-redis)
 - Graceful shutdown handling with signal management (SIGTERM/SIGINT on Unix, Ctrl+C on Windows)
 - Comprehensive error handling with custom `OxanusError` type
@@ -43,12 +47,15 @@ Oxanus is a job processing library built around several core components:
 - Job uniqueness, throttling, retries, and scheduling capabilities
 
 ### Multi-crate Structure
+
 The workspace is organized as:
+
 - Root `Cargo.toml` defines workspace members and shared package metadata
 - `oxanus/` contains the main library implementation
 - `oxanus-api/` is a placeholder for future API functionality
 
 ### Testing
+
 - Unit tests are co-located with source code
 - Integration tests are in `oxanus/tests/integration/`
 - Test utilities are in `test_helper.rs`
@@ -56,7 +63,9 @@ The workspace is organized as:
 - Benchmarks use the divan framework in `oxanus/benches/`
 
 ### Examples
+
 Comprehensive examples are provided in `oxanus/examples/` covering:
+
 - Basic usage (`minimal.rs`)
 - Cron scheduling (`cron.rs`)
 - Dynamic queues (`dynamic.rs`)

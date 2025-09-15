@@ -38,9 +38,10 @@ impl StorageBuilder {
     pub fn max_pool_size(mut self, max_pool_size: usize) -> Self {
         self.max_pool_size = Some(max_pool_size);
         if let Some(cfg) = &mut self.config
-            && let Some(pool_cfg) = &mut cfg.pool {
-                pool_cfg.max_size = max_pool_size;
-            }
+            && let Some(pool_cfg) = &mut cfg.pool
+        {
+            pool_cfg.max_size = max_pool_size;
+        }
         self
     }
 
@@ -76,12 +77,10 @@ impl StorageBuilder {
 
     pub fn build(self) -> Result<Storage, OxanusError> {
         let internal = match (self.pool, self.config) {
-            (Some(pool), None) => {
-                StorageInternal::new(pool, self.namespace, self.firehose.unwrap_or(false))
-            }
+            (Some(pool), None) => StorageInternal::new(pool, self.namespace),
             (None, Some(config)) => {
                 let pool = config.create_pool(Some(deadpool_redis::Runtime::Tokio1))?;
-                StorageInternal::new(pool, self.namespace, self.firehose.unwrap_or(false))
+                StorageInternal::new(pool, self.namespace)
             }
             (None, None) => {
                 return Err(OxanusError::ConfigError(
