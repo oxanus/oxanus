@@ -1,51 +1,11 @@
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-#[derive(Debug, Serialize, Deserialize)]
-struct Worker1Sec {
-    id: usize,
-    payload: String,
-}
-
 #[derive(Debug, thiserror::Error)]
 enum WorkerError {}
 
 #[derive(Debug, Clone)]
 struct WorkerState {}
-
-#[async_trait::async_trait]
-impl oxanus::Worker for Worker1Sec {
-    type Context = WorkerState;
-    type Error = WorkerError;
-
-    async fn process(
-        &self,
-        oxanus::Context { .. }: &oxanus::Context<WorkerState>,
-    ) -> Result<(), WorkerError> {
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-        Ok(())
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Worker2Sec {
-    id: usize,
-    foo: i32,
-}
-
-#[async_trait::async_trait]
-impl oxanus::Worker for Worker2Sec {
-    type Context = WorkerState;
-    type Error = WorkerError;
-
-    async fn process(
-        &self,
-        oxanus::Context { .. }: &oxanus::Context<WorkerState>,
-    ) -> Result<(), WorkerError> {
-        tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
-        Ok(())
-    }
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct WorkerInstant {}
