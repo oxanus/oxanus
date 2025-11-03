@@ -249,11 +249,6 @@ impl StorageInternal {
             .ok_or(OxanusError::JobNotFound)?
             .with_retries_incremented();
 
-        if delay_s == 0 {
-            self.enqueue(updated_envelope).await?;
-            return Ok(());
-        }
-
         let now = chrono::Utc::now().timestamp_micros() as u64;
 
         let mut redis = self.connection().await?;
