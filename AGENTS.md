@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to any coding agent (Claude, ChatGPT, etc.) when working with code in this repository.
 
 ## Development Commands
 
@@ -10,8 +10,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `cargo test` - Run all tests (unit and integration tests)
 - `cargo test <test_name>` - Run specific tests by name
 - `cargo bench` - Run benchmarks (uses divan benchmarking framework)
-- `cargo check` - Quick syntax and type checking without building
-- `cargo clippy` - Run Rust linter with extensive warnings enabled
+- `cargo check --all` - Quick syntax and type checking without building
+- `cargo fmt --workspace` - Format the codebase
+- `cargo clippy --all-features --workspace` - Run Rust linter with extensive warnings enabled
 - `cargo doc` - Generate documentation
 
 ### Package Structure
