@@ -1,3 +1,5 @@
+use chrono::{DateTime, Utc};
+
 use crate::{
     error::OxanusError,
     job_envelope::{JobEnvelope, JobId},
@@ -122,6 +124,48 @@ impl Storage {
         } else {
             self.internal.enqueue(envelope).await
         }
+    }
+
+    /// Schedules a job to run at a specific time.
+    ///
+    /// # Arguments
+    ///
+    /// * `queue` - The queue to enqueue the job to
+    /// * `job` - The job to enqueue
+    /// * `time` - The UTC timestamp when the job should become available
+    ///
+    /// # Returns
+    ///
+    /// A [`JobId`] that can be used to track the job, or an [`OxanusError`] if the operation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use chrono::{Duration, Utc};
+    /// use oxanus::{Storage, Queue, Worker};
+    ///
+    /// async fn example(storage: &Storage) -> Result<(), oxanus::OxanusError> {
+    ///     let time = Utc::now() + Duration::minutes(5);
+    ///     let job_id = storage.enqueue_at(MyQueue, MyWorker { data: "scheduled" }, time).await?;
+    ///     Ok(())
+    /// }
+    /// ```
+    pub async fn enqueue_at<T, DT, ET>(
+        &self,
+        queue: impl Queue,
+        job: T,
+        time: DateTime<Utc>,
+    ) -> Result<JobId, OxanusError>
+    where
+        T: Worker<Context = DT, Error = ET> + serde::Serialize,
+        DT: Send + Sync + Clone + 'static,
+        ET: std::error::Error + Send + Sync + 'static,
+    {
+        let envelope = JobEnvelope::new(queue.key().clone(), job)?;
+
+        tracing::trace!("Scheduling job {:?} at {}", envelope, time);
+
+        self.internal.enqueue_at(envelope, time).await
     }
 
     /// Returns the number of jobs currently enqueued in the specified queue.
