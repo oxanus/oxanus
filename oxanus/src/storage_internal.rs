@@ -222,6 +222,10 @@ impl StorageInternal {
         envelope: JobEnvelope,
         time: DateTime<Utc>,
     ) -> Result<JobId, OxanusError> {
+        if time <= chrono::Utc::now() {
+            return self.enqueue(envelope).await;
+        }
+
         let mut redis = self.connection().await?;
 
         if self.should_skip_job(&mut redis, &envelope).await? {
