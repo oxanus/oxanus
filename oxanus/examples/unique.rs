@@ -28,6 +28,10 @@ impl oxanus::Worker for Worker2Sec {
     fn unique_id(&self) -> Option<String> {
         Some(format!("worker2sec:{}", self.id))
     }
+
+    fn on_conflict(&self) -> oxanus::JobConflictStrategy {
+        oxanus::JobConflictStrategy::Skip
+    }
 }
 
 #[derive(Serialize)]
