@@ -25,10 +25,19 @@ pub struct JobMeta {
     pub id: JobId,
     pub retries: u32,
     pub unique: bool,
+    pub on_conflict: Option<JobConflictStrategy>,
     pub created_at: i64,
     #[serde(default)]
     pub scheduled_at: i64,
     pub state: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum JobConflictStrategy {
+    #[default]
+    Skip,
+    Replace,
 }
 
 impl JobEnvelope {
@@ -52,6 +61,11 @@ impl JobEnvelope {
                 id,
                 retries: 0,
                 unique,
+                on_conflict: if unique {
+                    Some(job.on_conflict())
+                } else {
+                    None
+                },
                 created_at: chrono::Utc::now().timestamp_micros(),
                 scheduled_at: chrono::Utc::now().timestamp_micros(),
                 state: None,
@@ -76,6 +90,7 @@ impl JobEnvelope {
                 id,
                 retries: 0,
                 unique: true,
+                on_conflict: Some(JobConflictStrategy::Skip),
                 created_at: chrono::Utc::now().timestamp_micros(),
                 scheduled_at,
                 state: None,
@@ -92,6 +107,7 @@ impl JobEnvelope {
                 id: self.id,
                 retries: self.meta.retries + 1,
                 unique: self.meta.unique,
+                on_conflict: self.meta.on_conflict,
                 created_at: self.meta.created_at,
                 scheduled_at: self.meta.scheduled_at,
                 state: self.meta.state,

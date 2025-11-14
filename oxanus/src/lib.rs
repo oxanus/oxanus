@@ -102,7 +102,7 @@ pub use crate::config::Config;
 pub use crate::context::Context;
 pub use crate::drainer::drain;
 pub use crate::error::OxanusError;
-pub use crate::job_envelope::JobId;
+pub use crate::job_envelope::{JobConflictStrategy, JobId};
 pub use crate::launcher::run;
 pub use crate::queue::{Queue, QueueConfig, QueueKind, QueueThrottle};
 pub use crate::storage::Storage;

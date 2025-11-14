@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     OxanusError,
-    job_envelope::{JobEnvelope, JobId},
+    job_envelope::{JobConflictStrategy, JobEnvelope, JobId},
     result_collector::{JobResult, JobResultKind},
     worker_registry::CronJob,
 };
@@ -126,6 +126,12 @@ impl StorageKeys {
     }
 }
 
+enum JobEnqueueAction {
+    Default,
+    Skip,
+    Replace,
+}
+
 impl StorageInternal {
     pub fn new(pool: deadpool_redis::Pool, namespace: Option<String>) -> Self {
         let keys = StorageKeys::new(namespace.unwrap_or_default());
@@ -173,35 +179,59 @@ impl StorageInternal {
         redis: &mut deadpool_redis::Connection,
         envelope: JobEnvelope,
     ) -> Result<JobId, OxanusError> {
-        if self.should_skip_job(redis, &envelope).await? {
-            tracing::warn!("Unique job {} already exists, skipping", envelope.id);
-            return Ok(envelope.id);
-        }
+        match self.job_enqueue_action(redis, &envelope).await? {
+            JobEnqueueAction::Skip => {
+                tracing::warn!("Unique job {} already exists, skipping", envelope.id);
 
-        let _: () = deadpool_redis::redis::pipe()
-            .hset(
-                &self.keys.jobs,
-                &envelope.id,
-                serde_json::to_string(&envelope)?,
-            )
-            .lpush(self.namespace_queue(&envelope.queue), &envelope.id)
-            .query_async(&mut *redis)
-            .await?;
+                return Ok(envelope.id);
+            }
+            JobEnqueueAction::Replace => {
+                tracing::warn!("Unique job {} already exists, replacing", envelope.id);
+
+                let _: () = deadpool_redis::redis::pipe()
+                    .hset(
+                        &self.keys.jobs,
+                        &envelope.id,
+                        serde_json::to_string(&envelope)?,
+                    )
+                    .query_async(&mut *redis)
+                    .await?;
+            }
+            JobEnqueueAction::Default => {
+                let _: () = deadpool_redis::redis::pipe()
+                    .hset(
+                        &self.keys.jobs,
+                        &envelope.id,
+                        serde_json::to_string(&envelope)?,
+                    )
+                    .lpush(self.namespace_queue(&envelope.queue), &envelope.id)
+                    .query_async(&mut *redis)
+                    .await?;
+            }
+        }
 
         Ok(envelope.id)
     }
 
-    async fn should_skip_job(
+    async fn job_enqueue_action(
         &self,
         redis: &mut deadpool_redis::Connection,
         envelope: &JobEnvelope,
-    ) -> Result<bool, OxanusError> {
+    ) -> Result<JobEnqueueAction, OxanusError> {
         if !envelope.meta.unique {
-            return Ok(false);
+            return Ok(JobEnqueueAction::Default);
         }
 
         let exists: bool = redis.hexists(&self.keys.jobs, &envelope.id).await?;
-        Ok(exists)
+
+        if exists {
+            match envelope.meta.on_conflict {
+                Some(JobConflictStrategy::Skip) | None => Ok(JobEnqueueAction::Skip),
+                Some(JobConflictStrategy::Replace) => Ok(JobEnqueueAction::Replace),
+            }
+        } else {
+            Ok(JobEnqueueAction::Default)
+        }
     }
 
     pub async fn enqueue_in(
@@ -228,20 +258,37 @@ impl StorageInternal {
 
         let mut redis = self.connection().await?;
 
-        if self.should_skip_job(&mut redis, &envelope).await? {
-            tracing::warn!("Unique job {} already exists, skipping", envelope.id);
-            return Ok(envelope.id);
-        }
+        match self.job_enqueue_action(&mut redis, &envelope).await? {
+            JobEnqueueAction::Skip => {
+                tracing::warn!("Unique job {} already exists, skipping", envelope.id);
 
-        let _: () = redis::pipe()
-            .hset(
-                &self.keys.jobs,
-                &envelope.id,
-                serde_json::to_string(&envelope)?,
-            )
-            .zadd(&self.keys.schedule, &envelope.id, time.timestamp_micros())
-            .query_async(&mut redis)
-            .await?;
+                return Ok(envelope.id);
+            }
+            JobEnqueueAction::Replace => {
+                tracing::warn!("Unique job {} already exists, replacing", envelope.id);
+
+                let _: () = redis::pipe()
+                    .hset(
+                        &self.keys.jobs,
+                        &envelope.id,
+                        serde_json::to_string(&envelope)?,
+                    )
+                    .zadd(&self.keys.schedule, &envelope.id, time.timestamp_micros())
+                    .query_async(&mut redis)
+                    .await?;
+            }
+            JobEnqueueAction::Default => {
+                let _: () = redis::pipe()
+                    .hset(
+                        &self.keys.jobs,
+                        &envelope.id,
+                        serde_json::to_string(&envelope)?,
+                    )
+                    .zadd(&self.keys.schedule, &envelope.id, time.timestamp_micros())
+                    .query_async(&mut redis)
+                    .await?;
+            }
+        }
 
         Ok(envelope.id)
     }

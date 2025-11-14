@@ -1,4 +1,4 @@
-use crate::context::Context;
+use crate::{context::Context, job_envelope::JobConflictStrategy};
 use std::panic::UnwindSafe;
 
 pub type BoxedWorker<DT, ET> = Box<dyn Worker<Context = DT, Error = ET>>;
@@ -28,5 +28,9 @@ pub trait Worker: Send + Sync + UnwindSafe {
 
     fn unique_id(&self) -> Option<String> {
         None
+    }
+
+    fn on_conflict(&self) -> JobConflictStrategy {
+        JobConflictStrategy::Skip
     }
 }
