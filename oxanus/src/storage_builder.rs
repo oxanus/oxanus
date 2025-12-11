@@ -8,9 +8,19 @@ pub struct StorageBuilder {
 }
 
 pub struct StorageBuilderTimeouts {
-    wait: Option<std::time::Duration>,
-    create: Option<std::time::Duration>,
-    recycle: Option<std::time::Duration>,
+    pub wait: Option<std::time::Duration>,
+    pub create: Option<std::time::Duration>,
+    pub recycle: Option<std::time::Duration>,
+}
+
+impl StorageBuilderTimeouts {
+    pub fn new(timeout: std::time::Duration) -> Self {
+        Self {
+            wait: Some(timeout),
+            create: Some(timeout),
+            recycle: Some(timeout),
+        }
+    }
 }
 
 impl Default for StorageBuilderTimeouts {
