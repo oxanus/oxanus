@@ -106,5 +106,5 @@ pub use crate::job_envelope::{JobConflictStrategy, JobId};
 pub use crate::launcher::run;
 pub use crate::queue::{Queue, QueueConfig, QueueKind, QueueThrottle};
 pub use crate::storage::Storage;
-pub use crate::storage_builder::StorageBuilder;
+pub use crate::storage_builder::{StorageBuilder, StorageBuilderTimeouts};
 pub use crate::worker::Worker;
