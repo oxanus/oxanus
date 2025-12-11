@@ -149,8 +149,7 @@ fn redis_pool() -> deadpool_redis::Pool {
 fn build_config(concurrency: usize) -> oxanus::Config<WorkerState, ServiceError> {
     dotenvy::from_filename(".env.test").ok();
     let storage = oxanus::Storage::builder()
-        .from_redis_pool(redis_pool())
-        .build()
+        .build_from_pool(redis_pool())
         .expect("Failed to build storage");
     oxanus::Config::new(&storage)
         .register_queue_with_concurrency::<QueueOne>(concurrency)

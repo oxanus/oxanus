@@ -24,9 +24,8 @@ pub async fn test_panic() -> TestResult {
     let redis_pool = setup();
     let ctx = oxanus::Context::value(());
     let storage = oxanus::Storage::builder()
-        .from_redis_pool(redis_pool)
         .namespace(random_string())
-        .build()?;
+        .build_from_pool(redis_pool)?;
     let config = oxanus::Config::new(&storage)
         .register_queue::<QueueOne>()
         .register_worker::<WorkerPanic>()

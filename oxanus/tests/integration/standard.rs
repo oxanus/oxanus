@@ -12,9 +12,8 @@ pub async fn test_standard() -> TestResult {
     });
 
     let storage = oxanus::Storage::builder()
-        .from_redis_pool(redis_pool.clone())
         .namespace(random_string())
-        .build()?;
+        .build_from_pool(redis_pool.clone())?;
     let config = oxanus::Config::new(&storage)
         .register_queue::<QueueOne>()
         .register_worker::<WorkerRedisSet>()
