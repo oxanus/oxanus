@@ -33,12 +33,12 @@ impl Default for StorageBuilderTimeouts {
     }
 }
 
-impl Into<deadpool_redis::Timeouts> for StorageBuilderTimeouts {
-    fn into(self) -> deadpool_redis::Timeouts {
+impl From<StorageBuilderTimeouts> for deadpool_redis::Timeouts {
+    fn from(value: StorageBuilderTimeouts) -> Self {
         deadpool_redis::Timeouts {
-            wait: self.wait,
-            create: self.create,
-            recycle: self.recycle,
+            wait: value.wait,
+            create: value.create,
+            recycle: value.recycle,
         }
     }
 }

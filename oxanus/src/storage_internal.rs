@@ -837,24 +837,34 @@ impl StorageInternal {
         let mut redis = self.connection().await?;
 
         let job_ids_to_clean = {
-            let mut iter: redis::AsyncIter<'_, (JobId, String)> =
-                redis.hscan(&self.keys.jobs).await?;
             let now = chrono::Utc::now().timestamp();
-
             let mut job_ids = vec![];
+            let mut cursor = 0;
 
-            while let Some(item) = iter.next_item().await {
-                let (job_id, job_str) = item?;
+            loop {
+                let mut cmd = redis::cmd("HSCAN");
+                cmd.arg(&self.keys.jobs).arg(cursor);
+                let result: (u64, Vec<String>) = cmd.query_async(&mut redis).await?;
+                let (new_cursor, items) = result;
 
-                let parsed: Result<JobEnvelope, _> = serde_json::from_str(&job_str);
+                let mut iter = items.into_iter();
+                while let (Some(job_id), Some(job_str)) = (iter.next(), iter.next()) {
+                    let parsed: Result<JobEnvelope, _> = serde_json::from_str(&job_str);
 
-                match parsed {
-                    Ok(job_envelope) => {
-                        if job_envelope.meta.created_at_secs() < now - JOB_EXPIRE_TIME {
-                            job_ids.push(job_id);
+                    match parsed {
+                        Ok(job_envelope) => {
+                            if job_envelope.meta.created_at_secs() < now - JOB_EXPIRE_TIME {
+                                job_ids.push(job_id);
+                            }
                         }
+                        Err(_) => job_ids.push(job_id),
                     }
-                    Err(_) => job_ids.push(job_id),
+                }
+
+                cursor = new_cursor;
+
+                if cursor == 0 {
+                    break;
                 }
             }
 

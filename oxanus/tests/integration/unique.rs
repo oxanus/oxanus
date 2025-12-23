@@ -1,4 +1,4 @@
-use redis::AsyncCommands;
+use deadpool_redis::redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use testresult::TestResult;
 
